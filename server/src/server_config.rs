@@ -77,6 +77,12 @@ pub struct ApiConfig {
     pub token_limits: TokenLimits,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct FEConfig {
+    pub confirm_path: String,
+    pub login_path: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct ConfigFile {
     settings: Settings,
@@ -84,6 +90,27 @@ struct ConfigFile {
     categories: Vec<Category>,
     heuristics: Vec<Heuristic>,
     model: ModelConfig,
+    frontend: FEConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Frontend {
+    base_url: Url,
+    config: FEConfig,
+}
+
+impl Frontend {
+    pub fn get_confirm_url(&self) -> Url {
+        let mut url = self.base_url.clone();
+        url.set_path(&self.config.confirm_path);
+        url
+    }
+
+    pub fn get_signin_url(&self) -> Url {
+        let mut url = self.base_url.clone();
+        url.set_path(&self.config.login_path);
+        url
+    }
 }
 
 #[derive(Debug)]
@@ -94,14 +121,14 @@ pub struct ServerConfig {
     pub heuristics: Vec<Heuristic>,
     pub gmail_config: GmailConfig,
     pub model: ModelConfig,
-    pub frontend_url: Url,
+    pub frontend: Frontend,
 }
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend URL: {:?}",
+            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}",
             self.settings,
             self.api,
             self.categories
@@ -114,7 +141,7 @@ impl std::fmt::Display for ServerConfig {
                 .collect::<Vec<_>>().join("\n"),
             self.gmail_config,
             self.model,
-            self.frontend_url.as_str(),
+            self.frontend,
         )
     }
 }
@@ -124,7 +151,13 @@ pub fn get_cert() -> Vec<u8> {
         if let Ok(dir) = env::var("APP_DIR") {
             format!("{}/cert.pem", dir)
         } else {
-            "config/cert.pem".to_string()
+            let cargo_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+            let parent_dir = Path::new(&cargo_dir)
+                .parent()
+                .expect("Failed to get parent dir")
+                .display()
+                .to_string();
+            format!("{}/config/cert.pem", parent_dir)
         }
     };
 
@@ -167,10 +200,14 @@ lazy_static! {
             categories,
             model,
             heuristics,
+            frontend,
         } = cfg_file;
 
-        let frontend_url = Url::parse(&env::var("FRONTEND_URL").expect("FRONTEND_URL is required"))
-            .expect("FRONTEND_URL is invalid");
+        let frontend = Frontend {
+            base_url: Url::parse(&env::var("FRONTEND_URL").expect("FRONTEND_URL is required"))
+                .expect("FRONTEND_URL is invalid"),
+            config: frontend,
+        };
 
         ServerConfig {
             settings,
@@ -179,7 +216,7 @@ lazy_static! {
             heuristics,
             gmail_config,
             model,
-            frontend_url,
+            frontend,
         }
     };
     pub static ref UNKNOWN_CATEGORY: Category = Category {

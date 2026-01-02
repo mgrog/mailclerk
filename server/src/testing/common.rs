@@ -1,20 +1,16 @@
+use chrono::Utc;
 use reqwest::Certificate;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
-use std::{env, path::PathBuf};
+use std::env;
 
 use crate::{
-    email::client::EmailClient, model::user::UserCtrl, server_config::get_cert, HttpClient,
+    auth::jwt::Claims, email::client::EmailClient, model::user::UserCtrl, server_config::get_cert,
+    HttpClient,
 };
 
 pub async fn setup() -> (DatabaseConnection, HttpClient) {
     dotenvy::dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
-    let app_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
-        .to_str()
-        .expect("Failed to convert path to string")
-        .to_string();
-
-    env::set_var("APP_DIR", app_dir);
     let mut db_options = ConnectOptions::new(db_url);
     db_options.sqlx_logging(false);
 
@@ -37,4 +33,13 @@ pub async fn setup_email_client(user_email: &str) -> EmailClient {
         .await
         .unwrap();
     EmailClient::new(http_client, conn, user).await.unwrap()
+}
+
+pub fn get_test_user_claims(email: &str) -> Claims {
+    Claims {
+        sub: 1,
+        email: email.to_string(),
+        company: "mailclerk.io".to_string(),
+        exp: Utc::now().timestamp() as usize + (5 * 60),
+    }
 }

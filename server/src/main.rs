@@ -41,6 +41,11 @@ use tokio::{signal, task::JoinHandle};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use crate::{
+    email::client::{EmailClient, MessageListOptions},
+    model::user::UserCtrl,
+};
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -96,6 +101,35 @@ async fn main() -> anyhow::Result<()> {
         email_processing_map.clone(),
         state.rate_limiters.clone(),
     );
+
+    if env::var("TEST_ONLY").is_ok_and(|x| x == "true") {
+        println!("-----TEST ONLY-----");
+        // let user =
+        //     UserCtrl::get_with_account_access_by_email(&state.conn, "mpgrospamacc@gmail.com")
+        //         .await?;
+
+        // let email_client =
+        //     EmailClient::new(state.http_client.clone(), state.conn.clone(), user).await?;
+        // let email_ids = email_client
+        //     .get_message_list(MessageListOptions {
+        //         ..Default::default()
+        //     })
+        //     .await?;
+
+        // let first_id = &email_ids
+        //     .messages
+        //     .as_ref()
+        //     .map(|x| x.first().as_ref().and_then(|x| x.id.as_ref()).unwrap())
+        //     .unwrap();
+
+        // let email = email_client.get_parsed_message(first_id).await?;
+
+        // state.http_client.post("https://api.mistral.ai/v1/embeddings").bearer_auth(token)
+
+        // println!("Email is: {:?}", email);
+
+        return Ok(());
+    }
 
     let mut scheduler = JobScheduler::new()
         .await
@@ -190,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
         })
     }));
 
-    if env::var("SERVER_ONLY").map_or(false, |v| v == "true") {
+    if env::var("SERVER_ONLY").is_ok_and(|v| v == "true") {
         tracing::info!("-------- RUNNING SERVER ONLY --------");
         // Handle Ctrl+C
         join_all([run_server(router, scheduler)]).await;
@@ -268,10 +302,13 @@ fn run_server(router: Router, scheduler: JobScheduler) -> JoinHandle<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], port.parse::<u16>().unwrap()));
         tracing::debug!("listening on {addr}");
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-        axum::serve(listener, router)
-            .with_graceful_shutdown(shutdown_signal(scheduler))
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal(scheduler))
+        .await
+        .unwrap();
     })
 }
 

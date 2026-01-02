@@ -1,4 +1,5 @@
 use chrono::Utc;
+use google_gmail1::api::Label;
 use sea_orm::DatabaseConnection;
 
 use crate::db_core::prelude::*;
@@ -13,6 +14,18 @@ impl CustomEmailRuleCtrl {
     ) -> AppResult<Vec<custom_email_rule::Model>> {
         let custom_email_rules = CustomEmailRule::find()
             .filter(custom_email_rule::Column::UserId.is_in(user_ids))
+            .all(conn)
+            .await?;
+
+        Ok(custom_email_rules)
+    }
+
+    pub async fn get_by_user_id(
+        conn: &DatabaseConnection,
+        user_id: i32,
+    ) -> AppResult<Vec<custom_email_rule::Model>> {
+        let custom_email_rules = CustomEmailRule::find()
+            .filter(custom_email_rule::Column::UserId.eq(user_id))
             .all(conn)
             .await?;
 
@@ -36,5 +49,13 @@ impl CustomEmailRuleCtrl {
             .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC);
 
         Ok(latest)
+    }
+
+    pub async fn update_label_colors(
+        conn: &DatabaseConnection,
+        user_id: i32,
+        email_client_labels: Vec<Label>,
+    ) -> AppResult<()> {
+        unimplemented!()
     }
 }

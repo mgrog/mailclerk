@@ -19,6 +19,7 @@ use strum::IntoEnumIterator;
 
 use crate::error::AppError;
 use crate::model::labels::UtilityLabels;
+use crate::model::user::UserAccessCtrl;
 use crate::{
     db_core::prelude::*,
     model::response::LabelUpdate,
@@ -73,26 +74,14 @@ impl EmailClient {
                 .build(),
         );
 
-        let access_token = match user::get_new_token(&http_client, &conn, &mut user).await {
-            Ok(token) => token,
-            Err(AppError::Oauth2) => {
-                UserAccountAccess::update(user_account_access::ActiveModel {
-                    user_email: ActiveValue::Unchanged(user.email().to_string()),
-                    needs_reauthentication: ActiveValue::Set(true),
-                    updated_at: ActiveValue::Set(Utc::now().into()),
-                    ..Default::default()
-                })
-                .exec(&conn)
-                .await
-                .context("Could not update user account access")?;
-
-                return Err(anyhow!("User needs to reauthenticate"));
-            }
-            Err(e) => {
-                tracing::error!("Error getting token: {:?}", e);
-                return Err(anyhow!("Unknown error getting access token"));
-            }
-        };
+        let access_token =
+            match UserAccessCtrl::get_refreshed_token(&http_client, &conn, &mut user).await {
+                Ok(token) => token,
+                Err(e) => {
+                    tracing::error!("Error getting token: {:?}", e);
+                    return Err(anyhow!("Unknown error getting access token: {:?}", e));
+                }
+            };
 
         // let user_configured_settings = UserInboxSettingsCtrl::get(&conn, user.id())
         //     .await

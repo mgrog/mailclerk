@@ -18,6 +18,18 @@ impl DefaultEmailRuleOverrideCtrl {
         Ok(default_email_rule_overrides)
     }
 
+    pub async fn get_by_user_id(
+        conn: &DatabaseConnection,
+        user_id: i32,
+    ) -> AppResult<Vec<default_email_rule_override::Model>> {
+        let default_email_rule_overrides = DefaultEmailRuleOverride::find()
+            .filter(default_email_rule_override::Column::UserId.eq(user_id))
+            .all(conn)
+            .await?;
+
+        Ok(default_email_rule_overrides)
+    }
+
     pub async fn get_last_updated(
         conn: &DatabaseConnection,
         user_id: i32,

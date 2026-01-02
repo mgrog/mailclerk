@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 
-use crate::db_core::prelude::*;
+use crate::{
+    db_core::prelude::*,
+    model::{
+        custom_email_rule::CustomEmailRuleCtrl,
+        default_email_rule_override::DefaultEmailRuleOverrideCtrl,
+    },
+};
 use anyhow::Context;
 use futures::join;
 use lazy_static::lazy_static;
@@ -67,12 +73,8 @@ impl UserEmailRules {
     pub async fn from_user(conn: &DatabaseConnection, user_id: i32) -> anyhow::Result<Self> {
         // let user_defined = None;
         let (default_rule_overrides, custom_email_rules) = join!(
-            DefaultEmailRuleOverride::find()
-                .filter(default_email_rule_override::Column::UserId.eq(user_id))
-                .all(conn),
-            CustomEmailRule::find()
-                .filter(custom_email_rule::Column::UserId.eq(user_id))
-                .all(conn)
+            DefaultEmailRuleOverrideCtrl::get_by_user_id(conn, user_id),
+            CustomEmailRuleCtrl::get_by_user_id(conn, user_id)
         );
         let default_rule_overrides =
             default_rule_overrides.context("Failed to fetch default overrides")?;
@@ -104,7 +106,7 @@ impl UserEmailRules {
 
         let custom_rules = custom_rules.into_iter().map(|rule| EmailRule {
             prompt_content: rule.prompt_content,
-            mail_label: rule.category,
+            mail_label: rule.mail_label,
             associated_email_client_category: rule.associated_email_client_category,
         });
 
@@ -123,5 +125,9 @@ impl UserEmailRules {
 
     pub fn get_prompt_categories(&self) -> Vec<String> {
         self.data.iter().map(|r| r.prompt_content.clone()).collect()
+    }
+
+    pub fn add_custom_rule(&mut self, rule: EmailRule) {
+        self.data.push(rule);
     }
 }

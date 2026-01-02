@@ -10,7 +10,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use serde_json::json;
 use sqlx::error::DatabaseError;
 
-use crate::{auth::jwt::AuthError, db_core::prelude::*};
+use crate::{auth::jwt::AuthError, db_core::prelude::*, routes::auth::AuthCallbackError};
 
 pub type AppResult<T> = Result<T, AppError>;
 pub type AppJsonResult<T> = AppResult<Json<T>>;
@@ -28,7 +28,7 @@ pub enum AppError {
     // AiPrompt(BedrockConverseError),
     EncryptToken,
     DecryptToken,
-    Oauth2,
+    Oauth2(AuthCallbackError),
 }
 
 impl std::error::Error for AppError {}
@@ -163,7 +163,7 @@ impl IntoResponse for AppError {
                     }
                 })),
             ),
-            AppError::Oauth2 => (
+            AppError::Oauth2(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": {

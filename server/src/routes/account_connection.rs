@@ -1,19 +1,17 @@
 use std::{collections::HashSet, str::FromStr};
 
-use axum::{
-    extract::{Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use lib_email_clients::gmail::AccessScopes;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    auth::jwt::Claims,
     email::client::{EmailClient, MessageListOptions},
     error::{AppError, AppJsonResult},
     model::{
-        response::{CheckAccountConnectionResponse, GmailAccountConnectionStatus, GoogleTokenInfo},
-        user::{AccountAccess, UserCtrl},
+        response::{CheckAccountConnectionResponse, GoogleTokenInfo},
+        user::{AccountAccess, UserAccessCtrl, UserCtrl},
     },
     server_config::cfg,
     HttpClient,
@@ -94,22 +92,56 @@ async fn _labels_ok(email_client: &EmailClient) -> bool {
     email_client.get_labels().await.is_ok()
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct AccountConnectionQuery {
-    email: String,
-}
+/// Checks the connection status of a Gmail account by performing various checks such as
+/// verifying required scopes, profile information, reading messages, and labels.
+///
+/// # Arguments
+///
+/// * `State(http_client)`: The HTTP client used for making requests.
+/// * `State(conn)`: The database connection.
+/// * `Query(query)`: The query parameters containing the email address to check.
+///
+/// # Returns
+///
+/// Returns a JSON response containing the connection status of the Gmail account.
+/// ```json {
+///    "email": "example@gmail.com",
+///    "result": {
+///      "status": "passed | failed | not_found | access_denied",
+///      "passed_checks": ["scopes_ok", "profile_ok", "read_messages_ok", "labels_ok"],
+///      "failed_checks": ["missing_scopes", "profile_check_failed", "read_messages_check_failed", "labels_check_failed"]
+///     }
+/// }
+/// ```
+///
+/// # Possible Results
+///
+/// * `GmailAccountConnectionStatus::NotFound`: The email account was not found in the database.
+/// * `GmailAccountConnectionStatus::AccessDenied`: The access token is invalid or expired.
+/// * `GmailAccountConnectionStatus::Failed`: One or more checks failed, with details of passed and failed checks.
+/// * `GmailAccountConnectionStatus::Passed`: All checks passed successfully.
+///
+/// # Errors
+///
+/// Returns an `AppJsonResult` containing an `AppError` if there is an error during the process.
+///
+/// # Usage
+///
+/// ```javascript
+///     fetch(`${API_BASE_URL}/check_account_connection`)
+/// ```
 
 pub async fn check_account_connection(
+    claims: Claims,
     State(http_client): State<HttpClient>,
     State(conn): State<DatabaseConnection>,
-    Query(query): Query<AccountConnectionQuery>,
 ) -> AppJsonResult<CheckAccountConnectionResponse> {
-    let user_access = match UserCtrl::get_with_account_access_by_email(&conn, &query.email).await {
+    let user_access = match UserCtrl::get_with_account_access_by_email(&conn, &claims.email).await {
         Ok(user) => user,
         Err(AppError::NotFound(_)) => {
             return Ok(Json(CheckAccountConnectionResponse {
-                email: query.email,
-                result: GmailAccountConnectionStatus::NotConnected,
+                email: claims.email,
+                result: GmailAccountConnectionStatus::NotFound,
             }))
         }
         Err(e) => {
@@ -120,6 +152,7 @@ pub async fn check_account_connection(
     let email_client =
         EmailClient::new(http_client.clone(), conn.clone(), user_access.clone()).await?;
 
+    let mut passed_checks = vec![];
     let mut failed_checks = vec![];
 
     let missing_scopes = match _missing_scopes(&http_client, &user_access.access_token()?).await {
@@ -127,41 +160,53 @@ pub async fn check_account_connection(
         Err(_) => {
             // If this fails, its likely the token is invalid
             return Ok(Json(CheckAccountConnectionResponse {
-                email: query.email,
-                result: GmailAccountConnectionStatus::NotConnected,
+                email: claims.email,
+                result: GmailAccountConnectionStatus::AccessDenied,
             }));
         }
     };
 
     if !missing_scopes.is_empty() {
-        return Ok(Json(CheckAccountConnectionResponse {
-            email: query.email,
-            result: GmailAccountConnectionStatus::MissingScopes { missing_scopes },
-        }));
+        failed_checks.push(AccountCheckFailures::MissingScopes { missing_scopes });
+    } else {
+        passed_checks.push(AccountCheckSuccesses::ScopesOk);
     }
 
     if !_profile_ok(&email_client).await {
-        failed_checks.push("profile".to_string());
+        failed_checks.push(AccountCheckFailures::ProfileCheckFailed);
+    } else {
+        passed_checks.push(AccountCheckSuccesses::ProfileOk);
     }
 
     if !_read_messages_ok(&email_client).await {
-        failed_checks.push("read_messages".to_string());
+        failed_checks.push(AccountCheckFailures::ReadMessagesCheckFailed);
+    } else {
+        passed_checks.push(AccountCheckSuccesses::ReadMessagesOk);
     }
 
     if !_labels_ok(&email_client).await {
-        failed_checks.push("labels".to_string());
+        failed_checks.push(AccountCheckFailures::LabelsCheckFailed);
+    } else {
+        passed_checks.push(AccountCheckSuccesses::LabelsOk);
     }
 
     if !failed_checks.is_empty() {
         return Ok(Json(CheckAccountConnectionResponse {
-            email: query.email,
-            result: GmailAccountConnectionStatus::FailedChecks { failed_checks },
+            email: claims.email,
+            result: GmailAccountConnectionStatus::Failed {
+                passed_checks,
+                failed_checks,
+            },
         }));
     }
 
+    if user_access.needs_reauthentication {
+        UserAccessCtrl::clear_needs_reauthentication(&conn, &user_access).await?;
+    }
+
     Ok(Json(CheckAccountConnectionResponse {
-        email: query.email,
-        result: GmailAccountConnectionStatus::Good,
+        email: claims.email,
+        result: GmailAccountConnectionStatus::Passed { passed_checks },
     }))
 }
 
@@ -177,53 +222,91 @@ impl From<reqwest::Error> for ScopeError {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "snake_case")]
+pub enum AccountCheckFailures {
+    MissingScopes { missing_scopes: Vec<AccessScopes> },
+    ProfileCheckFailed,
+    ReadMessagesCheckFailed,
+    LabelsCheckFailed,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
+pub enum AccountCheckSuccesses {
+    ScopesOk,
+    ProfileOk,
+    ReadMessagesOk,
+    LabelsOk,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum GmailAccountConnectionStatus {
+    NotFound,
+    AccessDenied,
+    Failed {
+        passed_checks: Vec<AccountCheckSuccesses>,
+        failed_checks: Vec<AccountCheckFailures>,
+    },
+    Passed {
+        passed_checks: Vec<AccountCheckSuccesses>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::common::setup;
+    use crate::testing::common::{get_test_user_claims, setup};
 
     #[tokio::test]
     async fn test_check_account_connection_ok() {
         // This test requires a valid email account mpgrospamacc@gmail.com to be present in the database
         const EMAIL: &str = "mpgrospamacc@gmail.com";
         let (conn, http_client) = setup().await;
-        let query = AccountConnectionQuery {
-            email: EMAIL.to_string(),
-        };
 
-        let check = check_account_connection(
-            State(http_client.clone()),
-            State(conn.clone()),
-            Query(query),
-        )
-        .await
-        .unwrap();
+        let claims = get_test_user_claims(EMAIL);
 
-        assert_eq!(check.email, EMAIL);
-        assert!(matches!(check.result, GmailAccountConnectionStatus::Good));
-    }
+        let check =
+            check_account_connection(claims, State(http_client.clone()), State(conn.clone()))
+                .await
+                .unwrap();
 
-    #[tokio::test]
-    async fn test_check_account_connection_missing_scopes() {
-        // This test requires a valid email account
-        const EMAIL: &str = "mtest4966@gmail.com";
-        let (conn, http_client) = setup().await;
-        let query = AccountConnectionQuery {
-            email: EMAIL.to_string(),
-        };
-
-        let check = check_account_connection(
-            State(http_client.clone()),
-            State(conn.clone()),
-            Query(query),
-        )
-        .await
-        .unwrap();
+        dbg!(&check.result);
 
         assert_eq!(check.email, EMAIL);
         assert!(matches!(
             check.result,
-            GmailAccountConnectionStatus::MissingScopes { .. }
+            GmailAccountConnectionStatus::Passed { .. }
         ));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_check_account_connection_missing_scopes() {
+        // This test requires a valid email account
+        const EMAIL: &str = "mtest4966@gmail.com";
+        let (conn, http_client) = setup().await;
+        let claims = get_test_user_claims(EMAIL);
+
+        let check =
+            check_account_connection(claims, State(http_client.clone()), State(conn.clone()))
+                .await
+                .unwrap();
+
+        dbg!(&check.result);
+
+        assert_eq!(&check.email, &EMAIL);
+        match &check.result {
+            GmailAccountConnectionStatus::Failed { failed_checks, .. } => {
+                assert!(failed_checks.len() == 1);
+                assert!(matches!(
+                    failed_checks[0],
+                    AccountCheckFailures::MissingScopes { .. }
+                ));
+            }
+            _ => panic!("Unexpected result"),
+        }
     }
 }

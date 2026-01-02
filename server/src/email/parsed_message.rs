@@ -1,9 +1,22 @@
 use anyhow::Context;
 use mail_parser::MessageParser;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+const RE_WHITESPACE_STR: &str = r"[\r\t\n]+";
+const RE_LONG_SPACE_STR: &str = r" {2,}";
+const RE_NON_ASCII_STR: &str = r"[^\x20-\x7E]";
+const RE_DIVIDERS_STR: &str = r"[-=_]{3,}";
+const RE_HTTP_LINK_STR: &str = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)";
+
+lazy_static::lazy_static!(
+    static ref RE_WHITESPACE: Regex = Regex::new(r"[\r\t\n]+").unwrap();
+    static ref RE_LONG_SPACE: Regex = Regex::new(r" {2,}").unwrap();
+    static ref RE_NON_ASCII: Regex = Regex::new(r"[^\x20-\x7E]").unwrap();
+    static ref RE_DIVIDERS: Regex = Regex::new(r"[-=_]{3,}").unwrap();
+    static ref RE_HTTP_LINK: Regex = Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap();
+);
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ParsedMessage {
     pub id: String,
     pub label_ids: Vec<String>,
@@ -48,21 +61,24 @@ impl ParsedMessage {
                 msg
             ))
     }
+
+    pub fn from_string(email: String) -> Self {
+        let b = email;
+        let b = RE_HTTP_LINK.replace_all(&b, "[LINK]");
+        let b = RE_NON_ASCII.replace_all(&b, "");
+        let b = RE_WHITESPACE.replace_all(&b, " ");
+        let b = RE_DIVIDERS.replace_all(&b, " ");
+        let b = RE_LONG_SPACE.replace_all(&b, " ");
+        let body = b.to_string();
+
+        ParsedMessage {
+            body: Some(body),
+            ..Default::default()
+        }
+    }
 }
 
-const RE_WHITESPACE_STR: &str = r"[\r\t\n]+";
-const RE_LONG_SPACE_STR: &str = r" {2,}";
-const RE_NON_ASCII_STR: &str = r"[^\x20-\x7E]";
-const RE_DIVIDERS_STR: &str = r"[-=_]{3,}";
-const RE_HTTP_LINK_STR: &str = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)";
-
 fn strip_formatting_and_links(msg: mail_parser::Message) -> StrippedMessage {
-    static RE_WHITESPACE: Lazy<Regex> = Lazy::new(|| Regex::new(RE_WHITESPACE_STR).unwrap());
-    static RE_LONG_SPACE: Lazy<Regex> = Lazy::new(|| Regex::new(RE_LONG_SPACE_STR).unwrap());
-    static RE_NON_ASCII: Lazy<Regex> = Lazy::new(|| Regex::new(RE_NON_ASCII_STR).unwrap());
-    static RE_DIVIDERS: Lazy<Regex> = Lazy::new(|| Regex::new(RE_DIVIDERS_STR).unwrap());
-    static RE_HTTP_LINK: Lazy<Regex> = Lazy::new(|| Regex::new(RE_HTTP_LINK_STR).unwrap());
-
     let subject = msg.subject().map(|s| s.to_string());
     let body = msg.body_text(0).map(|b| b.to_string());
     let from = msg

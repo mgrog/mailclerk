@@ -25,7 +25,7 @@ impl ProcessedEmailCtrl {
         let timestamp = Utc::now() - Duration::days(cleanup_setting.after_days_old as i64);
         let processed_emails = ProcessedEmail::find()
             .filter(processed_email::Column::UserId.eq(user_id))
-            .filter(processed_email::Column::Category.eq(&cleanup_setting.category))
+            .filter(processed_email::Column::Category.eq(&cleanup_setting.mail_label))
             .filter(processed_email::Column::ProcessedAt.lt(timestamp))
             .select_only()
             .column(processed_email::Column::Id)

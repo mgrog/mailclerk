@@ -221,10 +221,8 @@ pub enum ChatApiResponseOrError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        email::{parsed_message::ParsedMessage, rules::EmailRule},
-        testing::common::setup_email_client,
-    };
+    use crate::email::{parsed_message::ParsedMessage, rules::EmailRule};
+    use crate::testing::common::setup_email_client;
 
     #[test]
     fn test_system_prompt() {

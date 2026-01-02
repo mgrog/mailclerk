@@ -1,7 +1,9 @@
+use std::fmt::Debug;
+
 use crate::{
     db_core::prelude::*,
     error::{AppError, AppResult},
-    routes::auth,
+    routes::auth::{self, AuthCallbackError, OauthResult},
     server_config::cfg,
     HttpClient,
 };
@@ -9,6 +11,25 @@ use anyhow::{anyhow, Context};
 use chrono::DateTime;
 use lib_utils::crypt;
 use sea_orm::DbBackend;
+
+use super::response::GmailApiTokenResponse;
+
+trait UaaCols {
+    fn select_user_account_access_cols(self) -> Self;
+}
+
+impl UaaCols for Select<User> {
+    fn select_user_account_access_cols(self) -> Select<User> {
+        self.column_as(user_account_access::Column::Id, "user_account_access_id")
+            .column_as(user_account_access::Column::AccessToken, "access_token")
+            .column_as(user_account_access::Column::RefreshToken, "refresh_token")
+            .column_as(user_account_access::Column::ExpiresAt, "expires_at")
+            .column_as(
+                user_account_access::Column::NeedsReauthentication,
+                "needs_reauthentication",
+            )
+    }
+}
 
 pub struct UserCtrl;
 
@@ -31,10 +52,7 @@ impl UserCtrl {
         let user = User::find()
             .filter(user::Column::Id.eq(user_id))
             .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
-            .column_as(user_account_access::Column::Id, "user_account_access_id")
-            .column_as(user_account_access::Column::AccessToken, "access_token")
-            .column_as(user_account_access::Column::RefreshToken, "refresh_token")
-            .column_as(user_account_access::Column::ExpiresAt, "expires_at")
+            .select_user_account_access_cols()
             .into_model::<UserWithAccountAccess>()
             .one(conn)
             .await
@@ -51,10 +69,7 @@ impl UserCtrl {
         let user = User::find()
             .filter(user::Column::Email.eq(user_email))
             .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
-            .column_as(user_account_access::Column::Id, "user_account_access_id")
-            .column_as(user_account_access::Column::AccessToken, "access_token")
-            .column_as(user_account_access::Column::RefreshToken, "refresh_token")
-            .column_as(user_account_access::Column::ExpiresAt, "expires_at")
+            .select_user_account_access_cols()
             .into_model::<UserWithAccountAccess>()
             .one(conn)
             .await
@@ -75,10 +90,7 @@ impl UserCtrl {
                 JoinType::InnerJoin,
                 user::Relation::UserTokenUsageStat.def(),
             )
-            .column_as(user_account_access::Column::Id, "user_account_access_id")
-            .column_as(user_account_access::Column::AccessToken, "access_token")
-            .column_as(user_account_access::Column::RefreshToken, "refresh_token")
-            .column_as(user_account_access::Column::ExpiresAt, "expires_at")
+            .select_user_account_access_cols()
             .column_as(
                 user_token_usage_stat::Column::TokensConsumed,
                 "tokens_consumed",
@@ -97,11 +109,9 @@ impl UserCtrl {
     ) -> AppResult<Vec<UserWithAccountAccess>> {
         let users = User::find()
             .filter(user::Column::SubscriptionStatus.eq(SubscriptionStatus::Active))
+            .filter(user_account_access::Column::NeedsReauthentication.eq(false))
             .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
-            .column_as(user_account_access::Column::Id, "user_account_access_id")
-            .column_as(user_account_access::Column::AccessToken, "access_token")
-            .column_as(user_account_access::Column::RefreshToken, "refresh_token")
-            .column_as(user_account_access::Column::ExpiresAt, "expires_at")
+            .select_user_account_access_cols()
             .into_model::<UserWithAccountAccess>()
             .all(conn)
             .await
@@ -129,6 +139,7 @@ impl UserCtrl {
                 uaa.access_token,
                 uaa.refresh_token,
                 uaa.expires_at,
+                uaa.needs_reauthentication,
                 COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
                 GREATEST(latest_email_rule_override.updated_at, latest_custom_email_rule.updated_at) AS last_rule_update_time
             FROM
@@ -172,6 +183,7 @@ impl UserCtrl {
             WHERE
                 u.subscription_status = (CAST('ACTIVE' AS subscription_status))
                 AND ("user_token_usage_stat".tokens_consumed < $2 OR "user_token_usage_stat".tokens_consumed IS NULL)
+                AND uaa.needs_reauthentication = FALSE
         "#;
 
         let users =
@@ -219,6 +231,18 @@ pub trait AccountAccess {
     fn set_new_access_token(&mut self, new_access_token: &str) -> anyhow::Result<()>;
     fn access_is_expired(&self) -> bool {
         self.get_expires_at() < chrono::Utc::now()
+    }
+}
+
+impl Id for user::Model {
+    fn id(&self) -> i32 {
+        self.id
+    }
+}
+
+impl EmailAddress for user::Model {
+    fn email(&self) -> &str {
+        &self.email
     }
 }
 
@@ -348,58 +372,153 @@ impl AccountAccess for UserWithAccountAccessAndUsage {
     }
 }
 
-async fn update_account_access(
-    conn: &DatabaseConnection,
-    user: &mut impl AccountAccess,
-    refreshed_access_token: &str,
-    expires_in: i64,
-) -> anyhow::Result<()> {
-    let enc_access_token = crypt::encrypt(refreshed_access_token)
-        .map_err(|e| anyhow!("Failed to encrypt access code: {e}"))?;
+pub struct UserAccessCtrl;
 
-    UserAccountAccess::update(user_account_access::ActiveModel {
-        id: ActiveValue::Set(user.get_user_account_access_id()),
-        access_token: ActiveValue::Set(enc_access_token),
-        expires_at: ActiveValue::Set(DateTime::from(
-            chrono::Utc::now() + chrono::Duration::seconds(expires_in),
-        )),
-        needs_reauthentication: ActiveValue::Set(false),
-        ..Default::default()
-    })
-    .exec(conn)
-    .await?;
+impl UserAccessCtrl {
+    async fn refresh_account_access(
+        conn: &DatabaseConnection,
+        user: &mut impl AccountAccess,
+        refreshed_access_token: &str,
+        expires_in: i64,
+    ) -> anyhow::Result<()> {
+        let enc_access_token = crypt::encrypt(refreshed_access_token)
+            .map_err(|e| anyhow!("Failed to encrypt access code: {e}"))?;
 
-    user.set_new_access_token(refreshed_access_token)?;
+        UserAccountAccess::update(user_account_access::ActiveModel {
+            id: ActiveValue::Set(user.get_user_account_access_id()),
+            access_token: ActiveValue::Set(enc_access_token),
+            expires_at: ActiveValue::Set(DateTime::from(
+                chrono::Utc::now() + chrono::Duration::seconds(expires_in),
+            )),
+            needs_reauthentication: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(chrono::Utc::now().into()),
+            ..Default::default()
+        })
+        .exec(conn)
+        .await?;
 
-    Ok(())
-}
+        user.set_new_access_token(refreshed_access_token)?;
 
-pub async fn get_new_token(
-    http_client: &HttpClient,
-    conn: &DatabaseConnection,
-    user: &mut impl AccountAccess,
-) -> AppResult<String> {
-    let access_token = user.access_token()?;
-    let refresh_token = user.refresh_token()?;
-    let expires_at = user.get_expires_at();
+        Ok(())
+    }
 
-    let new_access_token = if expires_at < chrono::Utc::now() {
-        let resp = auth::exchange_refresh_token(http_client, &refresh_token).await?;
+    pub async fn get_refreshed_token(
+        http_client: &HttpClient,
+        conn: &DatabaseConnection,
+        user: &mut impl AccountAccess,
+    ) -> AppResult<String> {
+        let access_token = user.access_token()?;
+        let refresh_token = user.refresh_token()?;
+        let is_expired = user.access_is_expired();
 
-        update_account_access(conn, user, &resp.access_token, resp.expires_in as i64)
+        let new_access_token = if is_expired {
+            let resp = match auth::exchange_refresh_token(http_client, &refresh_token).await {
+                Ok(resp) => resp,
+                Err(AuthCallbackError::ExpiredOrRevoked) => {
+                    tracing::info!(
+                        "User {} access token expired or revoked. Flagging for re-authentication",
+                        user.get_user_account_access_id()
+                    );
+                    UserAccessCtrl::flag_needs_reauthentication(conn, user).await?;
+
+                    return Err(AppError::Oauth2(AuthCallbackError::ExpiredOrRevoked));
+                }
+                Err(e) => return Err(AppError::Oauth2(e)),
+            };
+
+            UserAccessCtrl::refresh_account_access(
+                conn,
+                user,
+                &resp.access_token,
+                resp.expires_in as i64,
+            )
             .await
             .map_err(|e| anyhow::anyhow!("Error updating account access: {:?}", e))?;
 
-        resp.access_token
-    } else {
-        access_token
-    };
+            resp.access_token
+        } else {
+            access_token
+        };
 
-    Ok(new_access_token)
+        Ok(new_access_token)
+    }
+
+    pub async fn update_account_access(
+        conn: &DatabaseConnection,
+        user: &impl AccountAccess,
+        response: GmailApiTokenResponse,
+    ) -> AppResult<()> {
+        let enc_access_token = crypt::encrypt(response.access_token.as_str())
+            .map_err(|e| anyhow!("Failed to encrypt access code: {e}"))?;
+
+        let refresh_token = response
+            .refresh_token
+            .context("Could not find refresh token in response")?;
+
+        let enc_refresh_token = crypt::encrypt(refresh_token)
+            .map_err(|e| anyhow!("Failed to encrypt refresh code: {e}"))?;
+
+        UserAccountAccess::update(user_account_access::ActiveModel {
+            id: ActiveValue::Set(user.get_user_account_access_id()),
+            access_token: ActiveValue::Set(enc_access_token),
+            refresh_token: ActiveValue::Set(enc_refresh_token),
+            expires_at: ActiveValue::Set(DateTime::from(
+                chrono::Utc::now() + chrono::Duration::seconds(response.expires_in as i64),
+            )),
+            needs_reauthentication: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(chrono::Utc::now().into()),
+            ..Default::default()
+        })
+        .exec(conn)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn _update_needs_reauthentication(
+        conn: &DatabaseConnection,
+        user: &impl AccountAccess,
+        update: bool,
+    ) -> anyhow::Result<()> {
+        UserAccountAccess::update(user_account_access::ActiveModel {
+            id: ActiveValue::Set(user.get_user_account_access_id()),
+            needs_reauthentication: ActiveValue::Set(update),
+            updated_at: ActiveValue::Set(chrono::Utc::now().into()),
+            ..Default::default()
+        })
+        .exec(conn)
+        .await
+        .context(format!(
+            "Error flagging needs_reauthentication for user: {}",
+            user.get_user_account_access_id()
+        ))?;
+
+        Ok(())
+    }
+
+    pub async fn flag_needs_reauthentication(
+        conn: &DatabaseConnection,
+        user: &impl AccountAccess,
+    ) -> anyhow::Result<()> {
+        UserAccessCtrl::_update_needs_reauthentication(conn, user, true).await?;
+
+        Ok(())
+    }
+
+    pub async fn clear_needs_reauthentication(
+        conn: &DatabaseConnection,
+        user: &impl AccountAccess,
+    ) -> anyhow::Result<()> {
+        UserAccessCtrl::_update_needs_reauthentication(conn, user, false).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use sea_orm::{Database, DbBackend};
 
     use crate::db_core::prelude::*;
@@ -433,9 +552,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_query() {
-        dotenvy::from_filename(".env.integration").unwrap();
-        let root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        std::env::set_var("APP_DIR", root);
+        let cargo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let proj_root = Path::new(&cargo_root).parent().unwrap();
+        // let server_root = proj_root.join("server");
+        let config_path = proj_root.join("config");
+        dbg!(&config_path);
+        dotenvy::from_filename(config_path.join(".env.integration")).unwrap();
+        std::env::set_var("APP_DIR", config_path);
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
         let users = UserCtrl::all_with_available_quota(&Database::connect(db_url).await.unwrap())
             .await

@@ -11,10 +11,13 @@ pub struct Model {
     pub user_id: i32,
     #[sea_orm(column_type = "Text")]
     pub prompt_content: String,
-    pub category: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     pub associated_email_client_category: Option<AssociatedEmailClientCategory>,
+    #[sea_orm(column_type = "Text")]
+    pub description: String,
+    pub mail_label: String,
+    pub name: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
