@@ -6,6 +6,7 @@ mod auth;
 mod cron_time_utils;
 mod db_core;
 mod email;
+mod embed;
 mod error;
 mod model;
 mod notify;
@@ -101,35 +102,6 @@ async fn main() -> anyhow::Result<()> {
         email_processing_map.clone(),
         state.rate_limiters.clone(),
     );
-
-    if env::var("TEST_ONLY").is_ok_and(|x| x == "true") {
-        println!("-----TEST ONLY-----");
-        // let user =
-        //     UserCtrl::get_with_account_access_by_email(&state.conn, "mpgrospamacc@gmail.com")
-        //         .await?;
-
-        // let email_client =
-        //     EmailClient::new(state.http_client.clone(), state.conn.clone(), user).await?;
-        // let email_ids = email_client
-        //     .get_message_list(MessageListOptions {
-        //         ..Default::default()
-        //     })
-        //     .await?;
-
-        // let first_id = &email_ids
-        //     .messages
-        //     .as_ref()
-        //     .map(|x| x.first().as_ref().and_then(|x| x.id.as_ref()).unwrap())
-        //     .unwrap();
-
-        // let email = email_client.get_parsed_message(first_id).await?;
-
-        // state.http_client.post("https://api.mistral.ai/v1/embeddings").bearer_auth(token)
-
-        // println!("Email is: {:?}", email);
-
-        return Ok(());
-    }
 
     let mut scheduler = JobScheduler::new()
         .await
@@ -336,4 +308,145 @@ fn create_processors_for_users(
             tracing::info!("Next time for processor creation job is {:?}", ts)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use tokio::net::TcpListener;
+
+    pub struct TestServer {
+        pub addr: SocketAddr,
+        pub state: ServerState,
+        shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    }
+
+    impl TestServer {
+        pub fn url(&self) -> String {
+            format!("http://{}", self.addr)
+        }
+
+        pub async fn shutdown(self) {
+            let _ = self.shutdown_tx.send(());
+        }
+    }
+
+    pub async fn setup() -> anyhow::Result<TestServer> {
+        dotenvy::dotenv().ok();
+
+        let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
+        let mut db_options = ConnectOptions::new(db_url);
+        db_options.sqlx_logging(false);
+
+        let conn = Database::connect(db_options)
+            .await
+            .expect("Database connection failed");
+
+        let cert = server_config::get_cert();
+        let http_client = reqwest::ClientBuilder::new()
+            .use_rustls_tls()
+            .add_root_certificate(Certificate::from_pem(&cert)?)
+            .build()?;
+
+        let session_store = AuthSessionStore::new();
+
+        let state = ServerState {
+            http_client,
+            conn,
+            rate_limiters: RateLimiters::from_env(),
+            session_store,
+            priority_queue: PromptPriorityQueue::new(),
+        };
+
+        let router = AppRouter::create(state.clone());
+
+        // Bind to port 0 to get a random available port
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+        });
+
+        Ok(TestServer {
+            addr,
+            state,
+            shutdown_tx,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_server_starts() {
+        let server = setup().await.expect("Failed to setup test server");
+        assert!(!server.url().is_empty());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_email_categorization() {
+        use crate::email::client::{EmailClient, MessageListOptions};
+        use crate::model::user::UserCtrl;
+
+        let server = setup().await.expect("Failed to setup test server");
+
+        let user = UserCtrl::get_with_account_access_by_email(
+            &server.state.conn,
+            "mpgrospamacc@gmail.com",
+        )
+        .await
+        .expect("Failed to get user");
+
+        let email_client = EmailClient::new(
+            server.state.http_client.clone(),
+            server.state.conn.clone(),
+            user,
+        )
+        .await
+        .expect("Failed to create email client");
+
+        let email_ids = email_client
+            .get_message_list(MessageListOptions {
+                ..Default::default()
+            })
+            .await
+            .expect("Failed to get message list");
+
+        let first_id = email_ids
+            .messages
+            .as_ref()
+            .expect("No messages found")
+            .first()
+            .expect("Message list is empty")
+            .id
+            .as_ref()
+            .expect("Message has no ID");
+
+        let email = email_client
+            .get_parsed_message(first_id)
+            .await
+            .expect("Failed to get parsed message");
+
+        println!("Email is: {:?}", email.to_string());
+
+        let result =
+            embed::categorize_email_with_confidence(&server.state.http_client, &email.to_string())
+                .await;
+
+        println!("Response is: {:?}", result);
+
+        assert!(result.is_ok(), "Categorization failed: {:?}", result.err());
+
+        server.shutdown().await;
+    }
 }

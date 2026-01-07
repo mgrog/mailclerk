@@ -76,6 +76,14 @@ impl ParsedMessage {
             ..Default::default()
         }
     }
+
+    pub fn to_string(&self) -> String {
+        format!(
+            "<subject>{}</subject> <body>{}</body>",
+            self.subject.clone().unwrap_or_default(),
+            self.body.clone().unwrap_or_default()
+        )
+    }
 }
 
 fn strip_formatting_and_links(msg: mail_parser::Message) -> StrippedMessage {
