@@ -1,7 +1,7 @@
 [workspace.lints.rust]
 
 [workspace]
-members = ["server", "entity", "prisma-cli", "libs/lib-utils", "tools/gen-key", "tools/decrypt", "libs/lib-email-clients"]
+members = ["server", "entity", "prisma-cli", "libs/lib-utils", "tools", "libs/lib-email-clients"]
 resolver = "2"
 default-members = ["server"]
 

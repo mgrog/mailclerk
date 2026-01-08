@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -13,7 +14,44 @@ use tower_http::cors::CorsLayer;
 
 use crate::{request_tracing, ServerState};
 
-use super::{account_connection, auth, custom_email_rule, gmail_labels};
+use super::{account_connection, auth, custom_email_rule, email, gmail_labels};
+
+#[cfg(debug_assertions)]
+mod dev {
+    use axum::{extract::Query, http::StatusCode, response::IntoResponse, Json};
+    use serde::{Deserialize, Serialize};
+
+    use crate::auth::jwt::generate_dev_token;
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct DevTokenParams {
+        #[serde(default = "default_user_id")]
+        pub user_id: i32,
+        #[serde(default = "default_email")]
+        pub email: String,
+    }
+
+    fn default_user_id() -> i32 {
+        1
+    }
+
+    fn default_email() -> String {
+        "test@example.com".to_string()
+    }
+
+    #[derive(Serialize)]
+    struct DevTokenResponse {
+        token: String,
+    }
+
+    pub async fn dev_token(Query(params): Query<DevTokenParams>) -> impl IntoResponse {
+        match generate_dev_token(params.user_id, &params.email) {
+            Ok(token) => (StatusCode::OK, Json(DevTokenResponse { token })).into_response(),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create token").into_response(),
+        }
+    }
+}
 
 pub struct AppRouter;
 
@@ -54,7 +92,7 @@ impl AppRouter {
             }
         });
 
-        Router::new()
+        let router = Router::new()
             .route("/", get(|| async { "Mailclerk server" }))
             .route("/auth/gmail", get(auth::handler_auth_gmail))
             .route("/auth/callback", get(auth::handler_auth_gmail_callback))
@@ -63,12 +101,23 @@ impl AppRouter {
                 "/check_account_connection",
                 get(account_connection::check_account_connection),
             )
-            .route(
-                "/refresh_user_token/:user_email",
-                get(auth::handler_refresh_user_token),
-            )
+            // TODO Determine if it needs removing
+            // .route(
+            //     "/refresh_user_token/:user_email",
+            //     get(auth::handler_refresh_user_token),
+            // )
             .route("/custom_email_rule/test", post(custom_email_rule::test))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
+            .nest(
+                "/email",
+                Router::new()
+                    .route("/", get(email::get_all))
+                    .route(
+                        "/send",
+                        post(email::send).layer(DefaultBodyLimit::max(25 * 1024 * 1024)), // 25MB limit for attachments
+                    )
+                    .with_state(state.clone()),
+            )
             .layer(CookieManagerLayer::new())
             .layer(GovernorLayer {
                 config: ip_limiter_conf,
@@ -76,7 +125,12 @@ impl AppRouter {
             .layer(request_tracing::trace_with_request_id_layer())
             .layer(cors_layer)
             .with_state(state.clone())
-            .fallback(handler_404)
+            .fallback(handler_404);
+
+        #[cfg(debug_assertions)]
+        let router = router.route("/dev/token", get(dev::dev_token));
+
+        router
     }
 }
 

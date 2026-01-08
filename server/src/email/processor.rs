@@ -20,7 +20,7 @@ use tokio::sync::watch;
 use crate::{
     email::{
         client::{EmailClient, MessageListOptions},
-        parsed_message::ParsedMessage,
+        simplified_message::SimplifiedMessage,
         rules::UserEmailRules,
     },
     error::{extract_database_error_code, AppError, AppResult, DatabaseErrorCode},
@@ -331,7 +331,7 @@ impl EmailProcessor {
 
     async fn parse_and_prompt_email(
         &self,
-        email_message: &ParsedMessage,
+        email_message: &SimplifiedMessage,
     ) -> anyhow::Result<PromptReturnData> {
         let CategoryPromptResponse {
             category: ai_answer,
@@ -383,7 +383,7 @@ impl EmailProcessor {
 
     async fn record_email_for_training(
         &self,
-        email_message: &ParsedMessage,
+        email_message: &SimplifiedMessage,
         parse_and_prompt_return: &PromptReturnData,
     ) -> anyhow::Result<()> {
         let PromptReturnData {
@@ -424,7 +424,7 @@ impl EmailProcessor {
 
     async fn categorize_email_in_client(
         &self,
-        email_message: &ParsedMessage,
+        email_message: &SimplifiedMessage,
         email_rule: EmailRule,
     ) -> anyhow::Result<LabelUpdate> {
         let label_update = match self
@@ -458,7 +458,7 @@ impl EmailProcessor {
 
     async fn record_processed_email(
         &self,
-        email_message: &ParsedMessage,
+        email_message: &SimplifiedMessage,
         data: EmailProcessingData,
     ) -> anyhow::Result<()> {
         match ProcessedEmailCtrl::insert(
@@ -479,7 +479,7 @@ impl EmailProcessor {
             Err(err) => match extract_database_error_code(&err) {
                 Some(code)
                     if DatabaseErrorCode::from_u32(code)
-                        .map_or(false, |c| c == DatabaseErrorCode::UniqueViolation) =>
+                        .is_some_and(|c| c == DatabaseErrorCode::UniqueViolation) =>
                 {
                     tracing::warn!("Email {} already processed", email_message.id);
                     Ok(())
@@ -494,7 +494,7 @@ impl EmailProcessor {
 
         let email_message = self
             .email_client
-            .get_parsed_message(&email_id)
+            .get_simplified_message(&email_id)
             .await
             .context("Failed to fetch email")?;
 

@@ -130,7 +130,6 @@ async fn _labels_ok(email_client: &EmailClient) -> bool {
 /// ```javascript
 ///     fetch(`${API_BASE_URL}/check_account_connection`)
 /// ```
-
 pub async fn check_account_connection(
     claims: Claims,
     State(http_client): State<HttpClient>,

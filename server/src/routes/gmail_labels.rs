@@ -29,7 +29,7 @@ pub async fn get_user_gmail_labels(
             label
                 .name
                 .as_ref()
-                .map_or(false, |name| name.starts_with("Mailclerk/"))
+                .is_some_and(|name| name.starts_with("Mailclerk/"))
         })
         // Remove utility labels like keep and uncategorized
         .filter(|label| {

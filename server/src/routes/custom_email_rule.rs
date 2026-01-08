@@ -1,5 +1,5 @@
 use crate::email::{
-    parsed_message::ParsedMessage,
+    simplified_message::SimplifiedMessage,
     rules::{EmailRule, UserEmailRules},
 };
 use crate::{prompt, rate_limiters::RateLimiters, HttpClient};
@@ -39,12 +39,12 @@ pub async fn test(
         associated_email_client_category: None,
     });
 
-    let parsed_msg = ParsedMessage::from_string(email_content);
+    let simplified_msg = SimplifiedMessage::from_string(email_content);
 
     let response = prompt::mistral::send_category_prompt(
         &http_client,
         &rate_limiters,
-        &parsed_msg,
+        &simplified_msg,
         &user_email_rules,
     )
     .await?;

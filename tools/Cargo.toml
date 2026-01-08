@@ -1,0 +1,22 @@
+[package]
+name = "tools"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "gen-key"
+path = "src/bin/gen_key.rs"
+
+[[bin]]
+name = "decrypt"
+path = "src/bin/decrypt.rs"
+
+[dependencies]
+# -- App Crates
+lib-utils = { path = "../libs/lib-utils" }
+# -- Others
+dotenvy = "0.15.7"
+rand = "0.8"

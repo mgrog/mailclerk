@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.86"
-axum = { version = "0.7.5", features = ["macros"] }
+axum = { version = "0.7.5", features = ["macros", "multipart"] }
 config = "0.14.0"
 google-gmail1 = "6.0.0"
 lazy_static = "1.5.0"
@@ -30,7 +30,7 @@ mimalloc = "0.1.43"
 mail-parser = "0.9.4"
 regex = "1.10.6"
 tokenizers = { version = "0.20.0", features = ["http"] }
-lettre = "0.11.9"
+lettre = { version = "0.11.9", features = ["builder"] }
 leaky-bucket = "1.1.2"
 minijinja = "2.3.1"
 base64 = "0.22.1"
@@ -56,6 +56,8 @@ indoc = "2.0.5"
 hex = "0.4.3"
 tower_governor = { version = "0.5.0", features = ["axum", "tracing"] }
 governor = "0.8.0"
+uuid = { version = "1.11", features = ["v4"] }
+ammonia = "4"
 
 [dependencies.sea-orm]
 version = "1.0.0-rc.5"

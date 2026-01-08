@@ -15,6 +15,19 @@ use crate::{
     model::user::{EmailAddress, Id},
 };
 
+#[cfg(debug_assertions)]
+pub fn generate_dev_token(user_id: i32, email: &str) -> Result<String, AuthError> {
+    let claims = Claims {
+        sub: user_id,
+        email: email.to_string(),
+        company: COMPANY.to_string(),
+        exp: Utc::now().timestamp() as usize + LONG_TTL,
+    };
+
+    jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &KEYS.encoding)
+        .map_err(|_| AuthError::TokenCreation)
+}
+
 static KEYS: LazyLock<Keys> = LazyLock::new(|| {
     let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     Keys::new(&secret)

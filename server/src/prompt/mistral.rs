@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::email::parsed_message::ParsedMessage;
+use crate::email::simplified_message::SimplifiedMessage;
 use crate::email::rules::UserEmailRules;
 use crate::rate_limiters;
 use crate::HttpClient;
@@ -30,7 +30,7 @@ fn system_prompt(prompt_categories: Vec<String>) -> String {
 pub async fn send_category_prompt(
     http_client: &HttpClient,
     rate_limiters: &rate_limiters::RateLimiters,
-    email_message: &ParsedMessage,
+    email_message: &SimplifiedMessage,
     email_rules: &UserEmailRules,
 ) -> AppResult<CategoryPromptResponse> {
     let subject = email_message.subject.as_ref().map_or("", |s| s.as_str());
@@ -221,7 +221,7 @@ pub enum ChatApiResponseOrError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::email::{parsed_message::ParsedMessage, rules::EmailRule};
+    use crate::email::{simplified_message::SimplifiedMessage, rules::EmailRule};
     use crate::testing::common::setup_email_client;
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
             .await
             .unwrap();
 
-        let msg = ParsedMessage::from_gmail_message(gmail_msg).unwrap();
+        let msg = SimplifiedMessage::from_gmail_message(gmail_msg).unwrap();
 
         let test_content = "Seat Geek Upcoming Events".to_string();
 

@@ -17,7 +17,7 @@ lazy_static::lazy_static!(
 );
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ParsedMessage {
+pub struct SimplifiedMessage {
     pub id: String,
     pub label_ids: Vec<String>,
     pub thread_id: String,
@@ -28,7 +28,7 @@ pub struct ParsedMessage {
     pub body: Option<String>,
 }
 
-impl ParsedMessage {
+impl SimplifiedMessage {
     pub fn from_gmail_message(msg: google_gmail1::api::Message) -> anyhow::Result<Self> {
         let id = msg.clone().id.unwrap_or_default();
         let label_ids = msg.clone().label_ids.unwrap_or_default();
@@ -45,7 +45,7 @@ impl ParsedMessage {
                     body,
                 } = msg.map_or(StrippedMessage::default(), strip_formatting_and_links);
 
-                ParsedMessage {
+                SimplifiedMessage {
                     id,
                     from,
                     label_ids,
@@ -71,7 +71,7 @@ impl ParsedMessage {
         let b = RE_LONG_SPACE.replace_all(&b, " ");
         let body = b.to_string();
 
-        ParsedMessage {
+        SimplifiedMessage {
             body: Some(body),
             ..Default::default()
         }
@@ -141,7 +141,7 @@ mod tests {
 
         let message = serde_json::from_str::<Message>(&json).expect("Unable to parse json");
 
-        let parsed = ParsedMessage::from_gmail_message(message).expect("Unable to parse message");
+        let parsed = SimplifiedMessage::from_gmail_message(message).expect("Unable to parse message");
 
         dbg!(&parsed);
 

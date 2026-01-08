@@ -1,10 +1,11 @@
 extern crate google_gmail1 as gmail1;
 
 use anyhow::{anyhow, Context};
-use chrono::Utc;
+use chrono::{FixedOffset, Utc};
 use futures::future::join_all;
 use google_gmail1::api::{
-    Label, ListLabelsResponse, ListMessagesResponse, Message, Profile, WatchResponse,
+    Label, ListLabelsResponse, ListMessagesResponse, ListThreadsResponse, Message, Profile, Thread,
+    WatchResponse,
 };
 use lazy_static::lazy_static;
 use leaky_bucket::RateLimiter;
@@ -16,8 +17,8 @@ use serde_json::json;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Duration};
 use strum::IntoEnumIterator;
+use uuid::Uuid;
 
-use crate::error::AppError;
 use crate::model::labels::UtilityLabels;
 use crate::model::user::UserAccessCtrl;
 use crate::{
@@ -25,14 +26,14 @@ use crate::{
     model::response::LabelUpdate,
     model::{
         labels,
-        user::{self, AccountAccess, EmailAddress, Id},
+        user::{AccountAccess, EmailAddress, Id},
     },
     server_config::{cfg, DAILY_SUMMARY_CATEGORY},
     HttpClient,
 };
 
-use super::parsed_message::ParsedMessage;
 use super::rules::EmailRule;
+use super::simplified_message::SimplifiedMessage;
 
 macro_rules! gmail_url {
     ($($params:expr),*) => {
@@ -57,6 +58,7 @@ pub struct EmailClient {
     access_token: String,
     rate_limiter: Arc<RateLimiter>,
     pub email_address: String,
+    pub expires_at: DateTimeWithTimeZone,
 }
 
 // TODO: Migrate Gmail specific parts to libs/email_clients/gmail
@@ -101,6 +103,7 @@ impl EmailClient {
             access_token,
             rate_limiter,
             email_address: user.email().to_string(),
+            expires_at: user.get_expires_at(),
         })
     }
 
@@ -119,6 +122,8 @@ impl EmailClient {
             access_token,
             rate_limiter,
             email_address: "test".to_string(),
+            expires_at: chrono::Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap())
+                + chrono::Duration::seconds(15),
         }
     }
 
@@ -206,15 +211,268 @@ impl EmailClient {
         req.json::<Message>().await.context("Error getting message")
     }
 
-    pub async fn get_parsed_message(&self, message_id: &str) -> anyhow::Result<ParsedMessage> {
-        let message = self.get_message_by_id(message_id).await?;
-        ParsedMessage::from_gmail_message(message)
+    /// Batch fetch multiple messages using Gmail's batch API
+    /// Maximum 100 requests per batch (Gmail API limit)
+    pub async fn get_messages_by_ids(
+        &self,
+        message_ids: &[String],
+    ) -> anyhow::Result<Vec<Message>> {
+        if message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Gmail batch API limit is 100 requests per batch
+        const BATCH_SIZE: usize = 100;
+        let mut all_messages = Vec::with_capacity(message_ids.len());
+
+        for chunk in message_ids.chunks(BATCH_SIZE) {
+            // Acquire rate limit tokens for all requests in batch
+            for _ in 0..chunk.len() {
+                self.rate_limiter
+                    .acquire(GMAIL_API_QUOTA.messages_get)
+                    .await;
+            }
+
+            let messages = self.batch_get_messages(chunk).await?;
+            all_messages.extend(messages);
+        }
+
+        Ok(all_messages)
     }
 
-    // pub async fn get_threads(&self) -> anyhow::Result<Vec<Thread>> {
-    //     let (_, resp) = self.hub.users().threads_list("me").doit().await?;
-    //     Ok(resp.threads.unwrap_or_default())
-    // }
+    async fn batch_get_messages(&self, message_ids: &[String]) -> anyhow::Result<Vec<Message>> {
+        let boundary = format!("batch_{}", Uuid::new_v4());
+
+        // Build multipart body
+        let mut body = String::new();
+        for (i, message_id) in message_ids.iter().enumerate() {
+            body.push_str(&format!("--{}\r\n", boundary));
+            body.push_str("Content-Type: application/http\r\n");
+            body.push_str(&format!("Content-ID: <item{}>\r\n\r\n", i));
+            body.push_str(&format!(
+                "GET /gmail/v1/users/me/messages/{}?format=RAW\r\n\r\n",
+                message_id
+            ));
+        }
+        body.push_str(&format!("--{}--", boundary));
+
+        let resp = self
+            .http_client
+            .post("https://www.googleapis.com/batch/gmail/v1")
+            .bearer_auth(&self.access_token)
+            .header(
+                "Content-Type",
+                format!("multipart/mixed; boundary={}", boundary),
+            )
+            .body(body)
+            .send()
+            .await?;
+
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .context("Missing content-type header")?
+            .to_string();
+
+        let response_body = resp.text().await?;
+
+        // Parse response boundary from content-type
+        let response_boundary = content_type
+            .split("boundary=")
+            .nth(1)
+            .context("Missing boundary in response")?;
+
+        // Parse multipart response
+        let mut messages = Vec::new();
+        let parts: Vec<&str> = response_body
+            .split(&format!("--{}", response_boundary))
+            .filter(|p| !p.trim().is_empty() && !p.trim().starts_with("--"))
+            .collect();
+
+        for part in parts {
+            // Each part has HTTP headers, then a blank line, then the JSON body
+            // Find the JSON body (after the HTTP response line and headers)
+            if let Some(json_start) = part.find("\r\n\r\n") {
+                let after_http_headers = &part[json_start + 4..];
+                // There might be another set of headers (HTTP response), find JSON after that
+                if let Some(json_start2) = after_http_headers.find("\r\n\r\n") {
+                    let json_body = after_http_headers[json_start2 + 4..].trim();
+                    if !json_body.is_empty() && json_body.starts_with('{') {
+                        match serde_json::from_str::<Message>(json_body) {
+                            Ok(message) => messages.push(message),
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to parse message from batch response: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(messages)
+    }
+
+    pub async fn get_simplified_message(
+        &self,
+        message_id: &str,
+    ) -> anyhow::Result<SimplifiedMessage> {
+        let message = self.get_message_by_id(message_id).await?;
+        SimplifiedMessage::from_gmail_message(message)
+    }
+
+    pub async fn get_threads(
+        &self,
+        options: ThreadListOptions,
+    ) -> anyhow::Result<ListThreadsResponse> {
+        self.rate_limiter
+            .acquire(GMAIL_API_QUOTA.threads_list)
+            .await;
+
+        let mut query: Vec<(String, String)> = Vec::new();
+
+        if let Some(q) = options.query {
+            query.push(("q".to_string(), q));
+        }
+
+        if let Some(label_ids) = options.label_ids {
+            for label_id in label_ids {
+                query.push(("labelIds".to_string(), label_id));
+            }
+        }
+
+        let max_results = options.max_results.unwrap_or(100);
+        query.push(("maxResults".to_string(), max_results.to_string()));
+
+        if let Some(token) = options.page_token {
+            query.push(("pageToken".to_string(), token));
+        }
+
+        let resp = self
+            .http_client
+            .get(gmail_url!("threads"))
+            .query(&query)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?;
+
+        let data = resp.json::<ListThreadsResponse>().await?;
+
+        Ok(data)
+    }
+
+    pub async fn get_thread_by_id(&self, thread_id: &str) -> anyhow::Result<Thread> {
+        self.rate_limiter.acquire(GMAIL_API_QUOTA.threads_get).await;
+
+        let resp = self
+            .http_client
+            .get(gmail_url!("threads", thread_id))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?;
+
+        resp.json::<Thread>().await.context("Error getting thread")
+    }
+
+    /// Batch fetch multiple threads using Gmail's batch API                               
+    /// Maximum 100 requests per batch (Gmail API limit)                                   
+    pub async fn get_threads_by_ids(&self, thread_ids: &[String]) -> anyhow::Result<Vec<Thread>> {
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Gmail batch API limit is 100 requests per batch
+        const BATCH_SIZE: usize = 100;
+        let mut all_threads = Vec::with_capacity(thread_ids.len());
+
+        for chunk in thread_ids.chunks(BATCH_SIZE) {
+            // Acquire rate limit tokens for all requests in batch
+            for _ in 0..chunk.len() {
+                self.rate_limiter.acquire(GMAIL_API_QUOTA.threads_get).await;
+            }
+
+            let threads = self.batch_get_threads(chunk).await?;
+            all_threads.extend(threads);
+        }
+
+        Ok(all_threads)
+    }
+
+    async fn batch_get_threads(&self, thread_ids: &[String]) -> anyhow::Result<Vec<Thread>> {
+        let boundary = format!("batch_{}", Uuid::new_v4());
+
+        // Build multipart body
+        let mut body = String::new();
+        for (i, thread_id) in thread_ids.iter().enumerate() {
+            body.push_str(&format!("--{}\r\n", boundary));
+            body.push_str("Content-Type: application/http\r\n");
+            body.push_str(&format!("Content-ID: <item{}>\r\n\r\n", i));
+            body.push_str(&format!(
+                "GET /gmail/v1/users/me/threads/{}?format=full\r\n\r\n",
+                thread_id
+            ));
+        }
+        body.push_str(&format!("--{}--", boundary));
+
+        let resp = self
+            .http_client
+            .post("https://www.googleapis.com/batch/gmail/v1")
+            .bearer_auth(&self.access_token)
+            .header(
+                "Content-Type",
+                format!("multipart/mixed; boundary={}", boundary),
+            )
+            .body(body)
+            .send()
+            .await?;
+
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .context("Missing content-type header")?
+            .to_string();
+
+        let response_body = resp.text().await?;
+
+        // Parse response boundary from content-type
+        let response_boundary = content_type
+            .split("boundary=")
+            .nth(1)
+            .context("Missing boundary in response")?;
+
+        // Parse multipart response
+        let mut threads = Vec::new();
+        let parts: Vec<&str> = response_body
+            .split(&format!("--{}", response_boundary))
+            .filter(|p| !p.trim().is_empty() && !p.trim().starts_with("--"))
+            .collect();
+
+        for part in parts {
+            // Each part has HTTP headers, then a blank line, then the JSON body
+            // Find the JSON body (after the HTTP response line and headers)
+            if let Some(json_start) = part.find("\r\n\r\n") {
+                let after_http_headers = &part[json_start + 4..];
+                // There might be another set of headers (HTTP response), find JSON after that
+                if let Some(json_start2) = after_http_headers.find("\r\n\r\n") {
+                    let json_body = after_http_headers[json_start2 + 4..].trim();
+                    if !json_body.is_empty() && json_body.starts_with('{') {
+                        match serde_json::from_str::<Thread>(json_body) {
+                            Ok(thread) => threads.push(thread),
+                            Err(e) => {
+                                tracing::warn!("Failed to parse thread from batch response: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(threads)
+    }
 
     pub async fn get_labels(&self) -> anyhow::Result<Vec<Label>> {
         self.rate_limiter.acquire(GMAIL_API_QUOTA.labels_list).await;
@@ -243,7 +501,7 @@ impl EmailClient {
             .await?;
         let data = resp.json::<serde_json::Value>().await?;
         if let Some(error) = data.get("error") {
-            if error.get("code").map_or(false, |x| x.as_i64() == Some(409)) {
+            if error.get("code").is_some_and(|x| x.as_i64() == Some(409)) {
                 // Label already exists
                 return Ok(label);
             }
@@ -287,11 +545,11 @@ impl EmailClient {
 
         let parent_label_exists = current_labels
             .iter()
-            .any(|l| l.name.as_ref().map_or(false, |n| n == "Mailclerk"));
+            .any(|l| l.name.as_ref().is_some_and(|n| n == "Mailclerk"));
 
         let existing_labels = current_labels
             .iter()
-            .filter(|l| l.name.as_ref().map_or(false, |n| n.contains("Mailclerk/")))
+            .filter(|l| l.name.as_ref().is_some_and(|n| n.contains("Mailclerk/")))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -332,7 +590,7 @@ impl EmailClient {
 
             existing_labels
                 .iter()
-                .filter(|l| l.name.as_ref().map_or(false, |n| unneeded.contains(n)))
+                .filter(|l| l.name.as_ref().is_some_and(|n| unneeded.contains(n)))
                 .cloned()
                 .collect::<Vec<_>>()
         };
@@ -425,7 +683,7 @@ impl EmailClient {
         if let Some(label) = existing_labels.iter().find(|l| {
             l.name
                 .as_ref()
-                .map_or(false, |n| n.as_str() == daily_summary_label_name.as_str())
+                .is_some_and(|n| n.as_str() == daily_summary_label_name.as_str())
         }) {
             Ok(label.id.clone().context("Label id not provided")?)
         } else {
@@ -642,6 +900,19 @@ pub struct MessageListOptions {
     pub max_results: Option<u32>,
 }
 
+#[derive(Default)]
+/// Filter and paging options for thread list
+pub struct ThreadListOptions {
+    /// Gmail search query (e.g., "is:unread", "from:example@gmail.com")
+    pub query: Option<String>,
+    /// Only return threads with labels that match all of the specified label IDs
+    pub label_ids: Option<Vec<String>>,
+    /// Page token for pagination
+    pub page_token: Option<String>,
+    /// Maximum number of threads to return (default: 100)
+    pub max_results: Option<u32>,
+}
+
 enum EmailClientError {
     RateLimitExceeded,
     Unauthorized,
@@ -732,8 +1003,8 @@ mod tests {
         let message = serde_json::from_str::<Message>(&json).expect("Unable to parse json");
 
         let sanitized =
-            ParsedMessage::from_gmail_message(message).expect("Unable to parse message");
-        let test = ParsedMessage {
+            SimplifiedMessage::from_gmail_message(message).expect("Unable to parse message");
+        let test = SimplifiedMessage {
                     id: "1921e8debe9a2256".to_string(),
         label_ids: vec![
             "Label_29".to_string(),

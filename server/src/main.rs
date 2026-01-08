@@ -15,7 +15,9 @@ mod rate_limiters;
 mod request_tracing;
 mod routes;
 mod server_config;
+mod state;
 mod testing;
+mod util;
 
 use std::{
     env,
@@ -42,10 +44,7 @@ use tokio::{signal, task::JoinHandle};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{
-    email::client::{EmailClient, MessageListOptions},
-    model::user::UserCtrl,
-};
+use crate::state::email_client_map::{self, EmailClientMap};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -53,6 +52,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 pub type TokenCounter = Arc<AtomicU64>;
 pub type HttpClient = reqwest::Client;
 pub type PubsubClient = Arc<google_cloud_pubsub::client::Client>;
+pub type EmailClientCache = Arc<tokio::sync::RwLock<EmailClientMap>>;
 
 #[derive(Clone, FromRef)]
 struct ServerState {
@@ -61,6 +61,7 @@ struct ServerState {
     rate_limiters: RateLimiters,
     session_store: AuthSessionStore,
     pub priority_queue: PromptPriorityQueue,
+    pub email_client_cache: EmailClientCache,
 }
 
 #[tokio::main]
@@ -81,6 +82,16 @@ async fn main() -> anyhow::Result<()> {
         .add_root_certificate(Certificate::from_pem(&cert)?)
         .build()?;
     let session_store = AuthSessionStore::new();
+    let email_client_cache = {
+        let map = email_client_map::EmailClientMap::builder()
+            .with_http_client(http_client.clone())
+            .with_connection(conn.clone())
+            .build()
+            .await
+            .expect("Email client map failed to build!");
+
+        Arc::new(tokio::sync::RwLock::new(map))
+    };
 
     let state = ServerState {
         http_client,
@@ -88,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
         rate_limiters: RateLimiters::from_env(),
         session_store,
         priority_queue: PromptPriorityQueue::new(),
+        email_client_cache,
     };
 
     tracing_subscriber::registry()
@@ -351,12 +363,24 @@ mod tests {
 
         let session_store = AuthSessionStore::new();
 
+        let email_client_cache = {
+            let map = email_client_map::EmailClientMap::builder()
+                .with_http_client(http_client.clone())
+                .with_connection(conn.clone())
+                .build()
+                .await
+                .expect("Email client map failed to build!");
+
+            Arc::new(tokio::sync::RwLock::new(map))
+        };
+
         let state = ServerState {
             http_client,
             conn,
             rate_limiters: RateLimiters::from_env(),
             session_store,
             priority_queue: PromptPriorityQueue::new(),
+            email_client_cache,
         };
 
         let router = AppRouter::create(state.clone());
@@ -433,9 +457,9 @@ mod tests {
             .expect("Message has no ID");
 
         let email = email_client
-            .get_parsed_message(first_id)
+            .get_simplified_message(first_id)
             .await
-            .expect("Failed to get parsed message");
+            .expect("Failed to get simplified message");
 
         println!("Email is: {:?}", email.to_string());
 
