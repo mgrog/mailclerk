@@ -127,40 +127,9 @@ pub async fn get_all(
         None
     };
 
-    // Collect all message IDs from threads
-    // let message_ids: Vec<String> = threads_to_return
-    //     .iter()
-    //     .flat_map(|t| t.messages.clone().unwrap_or_default())
-    //     .filter_map(|m| m.id)
-    //     .collect();
-
-    // // Batch fetch full messages
-    // let full_messages = email_client.get_messages_by_ids(&message_ids).await?;
-
-    // // Build a map from message ID to full message for quick lookup
-    // let message_map: HashMap<String, google_gmail1::api::Message> = full_messages
-    //     .into_iter()
-    //     .filter_map(|m| m.id.clone().map(|id| (id, m)))
-    //     .collect();
-
-    // // Insert full messages back into each thread
-    // let threads_with_messages: Vec<google_gmail1::api::Thread> = threads_to_return
-    //     .into_iter()
-    //     .map(|mut thread| {
-    //         if let Some(messages) = thread.messages.as_mut() {
-    //             *messages = messages
-    //                 .iter()
-    //                 .filter_map(|m| m.id.as_ref().and_then(|id| message_map.get(id).cloned()))
-    //                 .collect();
-    //         }
-    //         thread
-    //     })
-    //     .collect();
-
     let threads: Vec<_> = threads_to_return
         .into_iter()
-        .map(|t| parsed_and_sanitized_gmail_thread(t).ok())
-        .flatten()
+        .filter_map(|t| parsed_and_sanitized_gmail_thread(t).ok())
         .collect();
 
     Ok(Json(GetAllEmailsResponse {
