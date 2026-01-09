@@ -508,14 +508,6 @@ fn get_header(part: &MessagePart, name: &str) -> Option<String> {
     })
 }
 
-/// Simple HTML escaping for metadata strings
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 /// Wrap HTML body in a WebView-safe shell (single message)
 fn wrap_in_webview_shell(body: &str) -> String {
     formatdoc! {r#"

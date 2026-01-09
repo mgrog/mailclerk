@@ -31,7 +31,7 @@ use std::{
 use auth::session_store::AuthSessionStore;
 use axum::{extract::FromRef, Router};
 use db_core::prelude::*;
-use email::active_email_processors::ActiveEmailProcessorMap;
+use state::email_processor::ActiveEmailProcessorMap;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use prompt::priority_queue::PromptPriorityQueue;
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
 
     let router = AppRouter::create(state.clone());
     let email_processing_map = ActiveEmailProcessorMap::new(state.clone());
-    let processing_watch_handle = email::tasks::watch(
+    let processing_watch_handle = state::tasks::watch(
         state.priority_queue.clone(),
         email_processing_map.clone(),
         state.rate_limiters.clone(),
@@ -137,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
             .add(Job::new_one_shot(
                 Duration::from_secs(2),
                 move |_uuid, _l| {
-                    email::tasks::run_email_processing_loop(queue.clone(), map.clone());
+                    state::tasks::run_email_processing_loop(queue.clone(), map.clone());
                 },
             )?)
             .await?;
@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
             .add(Job::new_one_shot(
                 chrono::Duration::minutes(30).to_std().unwrap(),
                 move |_uuid, _l| {
-                    email::tasks::run_processor_cleanup_loop(queue.clone(), map.clone());
+                    state::tasks::run_processor_cleanup_loop(queue.clone(), map.clone());
                 },
             )?)
             .await?;
@@ -171,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
                 let conn = conn.clone();
                 Box::pin(async move {
                     tracing::info!("Running auto cleanup job {}", uuid);
-                    match email::tasks::run_auto_email_cleanup(http_client, conn).await {
+                    match state::tasks::run_auto_email_cleanup(http_client, conn).await {
                         Ok(_) => {
                             tracing::info!("Auto cleanup job {} succeeded", uuid);
                         }
@@ -306,7 +306,7 @@ fn create_processors_for_users(
     let map = map.clone();
     tracing::info!("Job: {}\n Creating processors for active users...", uuid);
     Box::pin(async move {
-        match email::tasks::add_users_to_processing(state, map.clone()).await {
+        match state::tasks::add_users_to_processing(state, map.clone()).await {
             Ok(_) => {
                 tracing::info!("Processor Creation Job {} succeeded", uuid);
             }

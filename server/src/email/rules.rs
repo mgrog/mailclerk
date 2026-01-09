@@ -10,7 +10,6 @@ use crate::{
 use anyhow::Context;
 use futures::join;
 use lazy_static::lazy_static;
-use sea_orm::EntityTrait;
 
 lazy_static! {
     static ref DEFAULT_EMAIL_RULES: Vec<EmailRule> = {

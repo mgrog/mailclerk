@@ -34,7 +34,7 @@ pub async fn get_user_gmail_labels(
         // Remove utility labels like keep and uncategorized
         .filter(|label| {
             UtilityLabels::iter().all(|utility_label| {
-                label.name.as_ref().map_or(true, |name| {
+                label.name.as_ref().is_none_or(|name| {
                     name != format!("Mailclerk/{}", utility_label.as_str()).as_str()
                 })
             })

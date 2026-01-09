@@ -1,7 +1,6 @@
 use crate::server_config::cfg;
 use anyhow::Context;
 use serde_json::json;
-use std::sync::OnceLock;
 
 use crate::HttpClient;
 

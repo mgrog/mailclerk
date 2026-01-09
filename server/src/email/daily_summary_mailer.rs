@@ -166,10 +166,10 @@ fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, str::FromStr};
+    use std::str::FromStr;
 
     use chrono::DateTime;
-    use sea_orm::{ConnectOptions, Database, DbBackend};
+    use sea_orm::DbBackend;
 
     use super::*;
 

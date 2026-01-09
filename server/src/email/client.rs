@@ -788,6 +788,62 @@ impl EmailClient {
 
         Ok(())
     }
+
+    /// Get a message by ID with FULL format (includes headers in payload)
+    /// Use this when you need access to headers like Message-ID, In-Reply-To, References
+    pub async fn get_message_with_headers(&self, message_id: &str) -> anyhow::Result<Message> {
+        self.rate_limiter
+            .acquire(GMAIL_API_QUOTA.messages_get)
+            .await;
+        let req = self
+            .http_client
+            .get(gmail_url!("messages", message_id))
+            .bearer_auth(&self.access_token)
+            .query(&[("format", "FULL")])
+            .send()
+            .await?;
+
+        req.json::<Message>()
+            .await
+            .context("Error getting message with headers")
+    }
+
+    /// Send an email using the Gmail API
+    /// The raw_message should be a base64url-encoded RFC 2822 MIME message
+    /// If thread_id is provided, the message will be added to that thread (for replies)
+    pub async fn send_message(
+        &self,
+        raw_message: &str,
+        thread_id: Option<&str>,
+    ) -> anyhow::Result<Message> {
+        self.rate_limiter
+            .acquire(GMAIL_API_QUOTA.messages_send)
+            .await;
+
+        let mut body = json!({
+            "raw": raw_message
+        });
+
+        if let Some(tid) = thread_id {
+            body["threadId"] = json!(tid);
+        }
+
+        let resp = self
+            .http_client
+            .post(gmail_url!("messages", "send"))
+            .bearer_auth(&self.access_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let data = resp.json::<serde_json::Value>().await?;
+
+        if let Some(error) = data.get("error") {
+            return Err(anyhow!("Error sending message: {:?}", error));
+        }
+
+        serde_json::from_value(data).context("Failed to parse send response")
+    }
 }
 
 fn build_label_update(

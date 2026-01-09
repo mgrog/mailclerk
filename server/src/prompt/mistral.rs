@@ -7,8 +7,8 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::email::simplified_message::SimplifiedMessage;
 use crate::email::rules::UserEmailRules;
+use crate::email::simplified_message::SimplifiedMessage;
 use crate::rate_limiters;
 use crate::HttpClient;
 use crate::{
@@ -221,7 +221,7 @@ pub enum ChatApiResponseOrError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::email::{simplified_message::SimplifiedMessage, rules::EmailRule};
+    use crate::email::{rules::EmailRule, simplified_message::SimplifiedMessage};
     use crate::testing::common::setup_email_client;
 
     #[test]

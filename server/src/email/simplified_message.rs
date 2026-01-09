@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::Context;
 use mail_parser::MessageParser;
 use regex::Regex;
@@ -76,12 +78,15 @@ impl SimplifiedMessage {
             ..Default::default()
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!(
+impl fmt::Display for SimplifiedMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "<subject>{}</subject> <body>{}</body>",
-            self.subject.clone().unwrap_or_default(),
-            self.body.clone().unwrap_or_default()
+            self.subject.as_deref().unwrap_or_default(),
+            self.body.as_deref().unwrap_or_default()
         )
     }
 }
@@ -141,7 +146,8 @@ mod tests {
 
         let message = serde_json::from_str::<Message>(&json).expect("Unable to parse json");
 
-        let parsed = SimplifiedMessage::from_gmail_message(message).expect("Unable to parse message");
+        let parsed =
+            SimplifiedMessage::from_gmail_message(message).expect("Unable to parse message");
 
         dbg!(&parsed);
 

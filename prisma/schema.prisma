@@ -28,9 +28,9 @@ model processed_email {
   id             String   @id @db.VarChar
   user_id        Int
   processed_at   DateTime @default(now()) @db.Timestamptz(6)
+  priority       String   @db.VarChar
   category       String   @db.VarChar
-  labels_applied String[] @default([])
-  labels_removed String[] @default([])
+  extracted_task String?  @db.Text
   ai_answer      String   @db.VarChar
   user           user     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
@@ -92,13 +92,6 @@ model user {
   setup_completed              Boolean                       @default(false)
 }
 
-enum AssociatedEmailClientCategory {
-  CATEGORY_PERSONAL
-  CATEGORY_SOCIAL
-  CATEGORY_PROMOTIONS
-  CATEGORY_UPDATES
-}
-
 enum cleanup_action {
   DELETE
   ARCHIVE
@@ -121,34 +114,35 @@ model auto_cleanup_setting {
 }
 
 model default_email_rule_override {
-  id                               Int                            @id @default(autoincrement())
-  user_id                          Int
-  category                         String                         @db.VarChar
-  associated_email_client_category AssociatedEmailClientCategory?
-  is_disabled                      Boolean                        @default(false)
-  created_at                       DateTime                       @default(now()) @db.Timestamptz(6)
-  updated_at                       DateTime                       @default(now()) @db.Timestamptz(6)
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  mail_label  String   @db.VarChar
+  is_disabled Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
 
   user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  @@unique([category, user_id])
   @@index([user_id])
-  @@index([user_id, updated_at(sort: Desc)])
 }
 
 model custom_email_rule {
-  id                               Int                            @id @default(autoincrement())
-  user_id                          Int
-  description                      String
-  prompt_content                   String
-  name                             String                         @db.VarChar
-  mail_label                       String                         @db.VarChar
-  associated_email_client_category AssociatedEmailClientCategory?
-  created_at                       DateTime                       @default(now()) @db.Timestamptz(6)
-  updated_at                       DateTime                       @default(now()) @db.Timestamptz(6)
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  description  String
+  semantic_key String
+  name         String   @db.VarChar
+  mail_label   String   @db.VarChar
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
 
   user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([user_id])
-  @@index([user_id, updated_at(sort: Desc)])
+}
+
+model email_embeddings {
+  id        Int                         @id @default(autoincrement())
+  email_id  String                      @db.VarChar
+  embedding Unsupported("vector(1024)")
 }
