@@ -102,10 +102,6 @@ impl AppRouter {
                 get(account_connection::check_account_connection),
             )
             // TODO Determine if it needs removing
-            // .route(
-            //     "/refresh_user_token/:user_email",
-            //     get(auth::handler_refresh_user_token),
-            // )
             .route("/custom_email_rule/test", post(custom_email_rule::test))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
             .nest(
@@ -128,7 +124,16 @@ impl AppRouter {
             .fallback(handler_404);
 
         #[cfg(debug_assertions)]
-        let router = router.route("/dev/token", get(dev::dev_token));
+        let router = router
+            .route(
+                "/dev/refresh_user_token/:user_email",
+                get(auth::handler_refresh_user_token).with_state(state.clone()),
+            )
+            .route("/dev/token", get(dev::dev_token))
+            .route(
+                "/dev/messages",
+                get(email::get_messages_by_ids).with_state(state.clone()),
+            );
 
         router
     }

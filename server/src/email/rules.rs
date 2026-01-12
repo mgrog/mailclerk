@@ -20,10 +20,7 @@ lazy_static! {
             .map(|c| EmailRule {
                 prompt_content: c.content.clone(),
                 mail_label: c.mail_label.clone(),
-                associated_email_client_category: c.gmail_categories.first().map(|s| {
-                    AssociatedEmailClientCategory::try_from_value(s)
-                        .unwrap_or_else(|_| panic!("Invalid email client category: {s}"))
-                }),
+                associated_email_client_category: None,
             })
             .collect()
     };
@@ -34,10 +31,7 @@ lazy_static! {
             .map(|h| EmailRule {
                 prompt_content: h.from.clone(),
                 mail_label: h.mail_label.clone(),
-                associated_email_client_category: h.gmail_categories.first().map(|s| {
-                    AssociatedEmailClientCategory::try_from_value(s)
-                        .unwrap_or_else(|_| panic!("Invalid email client category: {s}"))
-                }),
+                associated_email_client_category: None,
             })
             .collect()
     };

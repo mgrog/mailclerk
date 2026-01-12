@@ -57,6 +57,36 @@ const MAX_PAGE_SIZE: u32 = 100;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GetMessagesByIdsParams {
+    /// User email to fetch messages for
+    pub email: String,
+    /// Comma-separated list of message IDs
+    pub message_ids: String,
+}
+
+pub async fn get_messages_by_ids(
+    State(state): State<ServerState>,
+    Query(params): Query<GetMessagesByIdsParams>,
+) -> AppJsonResult<Vec<google_gmail1::api::Message>> {
+    let message_ids: Vec<String> = params
+        .message_ids
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if message_ids.is_empty() {
+        return Err(AppError::BadRequest("No message IDs provided".into()));
+    }
+
+    let email_client = fetch_email_client(state, params.email).await?;
+    let messages = email_client.get_messages_by_ids(&message_ids).await?;
+
+    Ok(Json(messages))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetAllEmailsQuery {
     /// Cursor for pagination (opaque string from previous response)
     pub cursor: Option<String>,

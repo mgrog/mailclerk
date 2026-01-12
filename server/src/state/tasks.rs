@@ -1,10 +1,13 @@
 use std::collections::{HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
 use entity::processed_email;
 use entity::sea_orm_active_enums::{CleanupAction, SubscriptionStatus};
+use futures::stream::{self, StreamExt};
+use futures::FutureExt;
 use google_gmail1::api::ListMessagesResponse;
 use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
@@ -29,7 +32,16 @@ pub async fn add_users_to_processing(
     email_processor_map: ActiveEmailProcessorMap,
 ) -> AppResult<()> {
     let conn = &state.conn;
-    let user_accounts = UserCtrl::all_with_available_quota(conn).await?;
+    let user_accounts = UserCtrl::all_available_for_processing(conn).await?;
+
+    // Stop users who shouldn't be processed
+    let valid_emails: HashSet<String> = user_accounts.iter().map(|u| u.email.clone()).collect();
+    for (email, proc) in email_processor_map.entries() {
+        if !valid_emails.contains(&email) {
+            proc.cancel();
+        }
+    }
+
     tracing::info!("Adding {} users to processing", user_accounts.len());
 
     for user in user_accounts {
@@ -80,23 +92,74 @@ pub async fn send_user_daily_email_summary(
     Ok(DailyEmailSentStatus::Sent)
 }
 
-async fn email_processing_task(
+/// Task that triggers each processor to queue new emails concurrently.
+/// Runs on a 60-second interval, iterating through all active processors.
+/// Also cleans up processors that have stopped queueing and have no items in the priority queue.
+pub fn run_email_queueing_loop(
     prompt_priority_queue: PromptPriorityQueue,
     email_processor_map: ActiveEmailProcessorMap,
-) {
-    loop {
-        let entry = prompt_priority_queue.pop();
-        if let Some(entry) = entry {
-            let email = &entry.user_email;
-            let email_id = entry.email_id;
-            if let Some(processor) = email_processor_map.get(email) {
-                processor.process_email(email_id, entry.priority).await;
-                prompt_priority_queue.remove_from_processing(email_id);
+) -> JoinHandle<()> {
+    let mut interval = interval(Duration::from_secs(60));
+    tracing::info!("Starting email queueing loop...");
+
+    tokio::spawn(async move {
+        loop {
+            interval.tick().await;
+
+            let queue = prompt_priority_queue.clone();
+            let map = email_processor_map.clone();
+
+            let result = AssertUnwindSafe(async {
+                let processors = map.entries();
+                if processors.is_empty() {
+                    return;
+                }
+
+                // Separate stopped processors (for cleanup) from active ones (for queueing)
+                let (stopped, active): (Vec<_>, Vec<_>) = processors
+                    .into_iter()
+                    .partition(|(_, processor)| processor.has_stopped_queueing());
+
+                // Only cleanup stopped processors that have nothing left in the priority queue
+                let processors_for_cleanup: HashSet<_> = stopped
+                    .into_iter()
+                    .filter(|(email, _)| queue.num_in_queue(email) == 0)
+                    .map(|(email, _)| email)
+                    .collect();
+
+                // Queue emails concurrently, max 10 at a time
+                stream::iter(active)
+                    .for_each_concurrent(10, |(email, processor)| async move {
+                        match processor.queue_emails().await {
+                            Ok(n) if n > 0 => {
+                                tracing::debug!("Queued {} emails for {}", n, email);
+                            }
+                            Err(e) => {
+                                tracing::error!("Error queueing emails for {}: {:?}", email, e);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .await;
+
+                // Cleanup stopped processors
+                if !processors_for_cleanup.is_empty() {
+                    map.cleanup_processors(processors_for_cleanup);
+                }
+            })
+            .catch_unwind()
+            .await;
+
+            if let Err(panic) = result {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "Unknown panic".to_string());
+                tracing::error!("Email queueing loop panicked, recovering: {}", msg);
             }
-        } else {
-            tokio::time::sleep(Duration::from_millis(500)).await;
         }
-    }
+    })
 }
 
 /// This function pulls emails from the prompt priority queue and sends them to the
@@ -105,71 +168,63 @@ pub fn run_email_processing_loop(
     prompt_priority_queue: PromptPriorityQueue,
     email_processor_map: ActiveEmailProcessorMap,
 ) -> JoinHandle<()> {
-    let max_threads = cfg.api.prompt_limits.rate_limit_per_sec * 2 - 1;
+    let max_workers = cfg.api.prompt_limits.rate_limit_per_sec * 2 - 1;
     tracing::info!(
-        "Starting email processing loop with {} threads...",
-        max_threads
+        "Starting email processing loop with {} workers...",
+        max_workers
     );
 
-    let mut join_set = tokio::task::JoinSet::new();
-
-    for _ in 0..max_threads {
-        join_set.spawn(email_processing_task(
-            prompt_priority_queue.clone(),
-            email_processor_map.clone(),
-        ));
-    }
-
-    tokio::task::spawn(async move {
-        loop {
-            if join_set.len() != max_threads {
-                tracing::error!(
-                    "Email processing thread count mismatch: expected {}, got {}",
-                    max_threads,
-                    join_set.len()
-                );
-
-                join_set.abort_all();
-
-                tracing::info!("Restarting email processing threads...");
-
-                for _ in 0..max_threads {
-                    join_set.spawn(email_processing_task(
-                        prompt_priority_queue.clone(),
-                        email_processor_map.clone(),
-                    ));
-                }
-            }
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    })
-}
-
-pub fn run_processor_cleanup_loop(
-    prompt_priority_queue: PromptPriorityQueue,
-    email_processor_map: ActiveEmailProcessorMap,
-) -> JoinHandle<()> {
-    let mut interval = interval(
-        (chrono::Duration::minutes(30) + chrono::Duration::seconds(5))
-            .to_std()
-            .unwrap(),
-    );
     tokio::spawn(async move {
-        loop {
-            interval.tick().await;
-            let processors_for_cleanup = email_processor_map
-                .entries()
-                .into_iter()
-                .filter(|(email, processor)| {
-                    processor.has_stopped_queueing()
-                        && prompt_priority_queue.num_in_queue(email) == 0
-                })
-                .map(|e| e.0)
-                .collect::<HashSet<_>>();
+        stream::iter(0..max_workers)
+            .for_each_concurrent(max_workers, |worker_id| {
+                let queue = prompt_priority_queue.clone();
+                let map = email_processor_map.clone();
+                async move {
+                    loop {
+                        let queue = queue.clone();
+                        let map = map.clone();
 
-            email_processor_map.cleanup_processors(processors_for_cleanup);
-        }
+                        let result = AssertUnwindSafe(async {
+                            if let Some(entry) = queue.pop() {
+                                let email_id = entry.email_id;
+                                // Create guard that will remove email from in_processing set when dropped
+                                // This ensures cleanup even if process_email panics
+                                let _guard = queue.create_processing_guard(email_id);
+                                if let Some(processor) = map.get(&entry.user_email) {
+                                    processor.process_email(email_id, entry.priority).await;
+                                }
+                                // _guard dropped here, removing email from in_processing set
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .catch_unwind()
+                        .await;
+
+                        match result {
+                            Ok(false) => {
+                                // No work available, sleep before checking again
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                            }
+                            Err(panic) => {
+                                let msg = panic
+                                    .downcast_ref::<&str>()
+                                    .map(|s| s.to_string())
+                                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                                    .unwrap_or_else(|| "Unknown panic".to_string());
+                                tracing::error!(
+                                    "Email processing worker {} panicked, recovering: {}",
+                                    worker_id,
+                                    msg
+                                );
+                            }
+                            Ok(true) => {}
+                        }
+                    }
+                }
+            })
+            .await;
     })
 }
 

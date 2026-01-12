@@ -28,7 +28,7 @@ use crate::{
         labels,
         user::{AccountAccess, EmailAddress, Id},
     },
-    server_config::{cfg, DAILY_SUMMARY_CATEGORY},
+    server_config::cfg,
     HttpClient,
 };
 
@@ -164,11 +164,7 @@ impl EmailClient {
             .more_recent_than
             .map(|duration| format!("after:{}", (Utc::now() - duration).timestamp()));
 
-        let label_filter = options
-            .label_filter
-            .unwrap_or(default_mailclerk_label_filter());
-
-        let mut filters = vec![label_filter];
+        let mut filters = vec![];
         if let Some(time_filter) = time_filter {
             filters.push(time_filter);
         }
@@ -673,37 +669,6 @@ impl EmailClient {
         }
 
         Ok(true)
-    }
-
-    /// Gets the label id for the mailclerk daily summary label, if doesn't exist, creates it
-    pub async fn get_daily_summary_label_id(&self) -> anyhow::Result<String> {
-        let existing_labels = self.get_labels().await?;
-        let daily_summary_label_name =
-            format!("Mailclerk/{}", DAILY_SUMMARY_CATEGORY.mail_label.clone());
-        if let Some(label) = existing_labels.iter().find(|l| {
-            l.name
-                .as_ref()
-                .is_some_and(|n| n.as_str() == daily_summary_label_name.as_str())
-        }) {
-            Ok(label.id.clone().context("Label id not provided")?)
-        } else {
-            let label = self
-                .create_label(Label {
-                    id: None,
-                    type_: Some("user".to_string()),
-                    color: Some(COLOR_MAP.get("white")),
-                    name: Some(daily_summary_label_name.clone()),
-                    messages_total: None,
-                    messages_unread: None,
-                    threads_total: None,
-                    threads_unread: None,
-                    message_list_visibility: Some("show".to_string()),
-                    label_list_visibility: Some("labelShowIfUnread".to_string()),
-                })
-                .await?;
-
-            Ok(label.id.context("Label id not provided")?)
-        }
     }
 
     pub async fn label_email(

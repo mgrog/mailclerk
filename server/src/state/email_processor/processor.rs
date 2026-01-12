@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     sync::{atomic::AtomicI64, Arc},
-    time::Duration,
 };
 
 use anyhow::{anyhow, Context};
@@ -122,92 +121,43 @@ impl EmailProcessor {
             interrupt_channel,
         };
 
-        let clone = processor.clone();
-        tokio::spawn(async move {
-            clone.run().await.unwrap_or_else(|e| {
-                tracing::error!(
-                    "Error running email processor for {}: {:?}",
-                    clone.email_address,
-                    e
-                );
-            });
-        });
+        tracing::info!("Email processor created for {}", processor.email_address);
 
         Ok(processor)
     }
 
-    async fn run(&self) -> AppResult<()> {
-        tracing::info!("Starting email processor for {}", self.email_address);
-
-        match self.configure_user_labels().await {
-            Ok(true) => {
-                tracing::info!("Labels configured successfully for {}", self.email_address);
-            }
-            Ok(false) => {
-                tracing::info!("Labels already configured for {}", self.email_address);
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Error configuring labels for {}: {:?}",
-                    self.email_address,
-                    e
-                );
-                self.fail();
-                return Err(e.into());
-            }
-        };
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
-        let mut rx = self.interrupt_channel.1.clone();
-        loop {
-            tokio::select! {
-              _ = interval.tick() => {},
-              _ = rx.wait_for(|v| matches!(v, InterruptSignal::Cancel | InterruptSignal::Fail | InterruptSignal::Quota)) => {
-                tracing::info!("Interrupt signal received for {}", self.email_address);
-                break;
-              }
-            }
-
-            if self
-                .priority_queue
-                .num_high_priority_in_queue(&self.email_address)
-                == 0
-            {
-                match self.queue_recent_emails().await {
-                    Ok(n) if n > 0 => {}
-                    // If there are no recent emails and sufficient quota remaining, queue older emails in low priority
-                    Ok(_) if self.current_token_usage() < *LOW_PRIORITY_CUTOFF => {
-                        match self.queue_older_emails().await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                tracing::error!(
-                                    "Error queuing older emails for {}: {:?}",
-                                    self.email_address,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Error queuing recent emails for {}: {:?}",
-                            self.email_address,
-                            e
-                        );
-                        self.fail();
-                        return Err(e);
-                    }
-                    _ => {}
-                }
-            }
+    /// Queue emails for processing. Returns the number of emails queued.
+    /// Queues recent (high priority) emails first, then older (low priority) if under quota.
+    pub async fn queue_emails(&self) -> AppResult<i32> {
+        if self.has_stopped_queueing() {
+            return Ok(0);
         }
 
-        tracing::info!(
-            "Email processor for {} finished with status: {}",
-            self.email_address,
-            self.status()
-        );
+        // Only queue if no high priority emails are pending
+        if self
+            .priority_queue
+            .num_high_priority_in_queue(&self.email_address)
+            > 0
+        {
+            return Ok(0);
+        }
 
-        Ok(())
+        // Try to queue recent emails first
+        match self.queue_recent_emails().await {
+            Ok(n) if n > 0 => return Ok(n),
+            // Ok(_) if self.current_token_usage() < *LOW_PRIORITY_CUTOFF => {
+            //     // No recent emails and under quota, try older emails
+            //     return self.queue_older_emails().await;
+            // }
+            Err(e) => {
+                tracing::error!("Error queuing emails for {}: {:?}", self.email_address, e);
+                self.fail();
+                return Err(e);
+            }
+            _ => {}
+        }
+
+        Ok(0)
     }
 
     async fn fetch_email_ids(
@@ -237,7 +187,7 @@ impl EmailProcessor {
                 .get_message_list(MessageListOptions {
                     page_token: next_page_token,
                     more_recent_than: options.as_ref().and_then(|o| o.more_recent_than),
-                    categories: options.as_ref().and_then(|o| o.categories.clone()),
+
                     ..Default::default()
                 })
                 .await
@@ -381,6 +331,7 @@ impl EmailProcessor {
         })
     }
 
+    // TODO: Remove this
     async fn record_email_for_training(
         &self,
         email_message: &SimplifiedMessage,
@@ -427,33 +378,8 @@ impl EmailProcessor {
         email_message: &SimplifiedMessage,
         email_rule: EmailRule,
     ) -> anyhow::Result<LabelUpdate> {
-        let label_update = match self
-            .email_client
-            .label_email(
-                email_message.id.clone(),
-                email_message.label_ids.clone(),
-                email_rule.clone(),
-            )
-            .await
-        {
-            Ok(label_update) => label_update,
-            Err(e) => {
-                tracing::error!("Error labeling email {}: {:?}", email_message.id, e);
-                // If labeling fails, try to fix labels
-                match self.configure_user_labels().await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!("Could not fix labels for {}: {:?}", self.email_address, e);
-                        self.fail();
-                    }
-                }
-                // We allow email to be queued again later if labeling fails
-                // As we will not record as successfully processed
-                return Err(e);
-            }
-        };
-
-        Ok(label_update)
+        // Change this to save db instead of in gmail
+        unimplemented!()
     }
 
     async fn record_processed_email(
@@ -513,9 +439,11 @@ impl EmailProcessor {
                 }
             };
         };
-        let label_update = self
-            .categorize_email_in_client(&email_message, result.email_rule.clone())
-            .await?;
+        // Todo: Update this to use new label system
+        let label_update = LabelUpdate {
+            added: None,
+            removed: None,
+        };
 
         let token_usage = result.token_usage;
 
@@ -574,13 +502,6 @@ impl EmailProcessor {
         self.set_token_count(updated_tally);
 
         Ok(())
-    }
-
-    async fn configure_user_labels(&self) -> anyhow::Result<bool> {
-        let user_custom_labels = self.user_email_rules.get_custom_labels();
-        self.email_client
-            .configure_labels_if_needed(user_custom_labels)
-            .await
     }
 
     fn fail(&self) {

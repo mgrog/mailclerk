@@ -14,11 +14,11 @@ use sea_orm::DbBackend;
 
 use super::response::GmailApiTokenResponse;
 
-trait UaaCols {
+trait UserAccountAccessCols {
     fn select_user_account_access_cols(self) -> Self;
 }
 
-impl UaaCols for Select<User> {
+impl UserAccountAccessCols for Select<User> {
     fn select_user_account_access_cols(self) -> Select<User> {
         self.column_as(user_account_access::Column::Id, "user_account_access_id")
             .column_as(user_account_access::Column::AccessToken, "access_token")
@@ -28,6 +28,19 @@ impl UaaCols for Select<User> {
                 user_account_access::Column::NeedsReauthentication,
                 "needs_reauthentication",
             )
+    }
+}
+
+trait UserTokensConsumedCols {
+    fn select_user_tokens_consumed(self) -> Self;
+}
+
+impl UserTokensConsumedCols for Select<User> {
+    fn select_user_tokens_consumed(self) -> Select<User> {
+        self.column_as(
+            user_token_usage_stat::Column::TokensConsumed,
+            "tokens_consumed",
+        )
     }
 }
 
@@ -91,10 +104,7 @@ impl UserCtrl {
                 user::Relation::UserTokenUsageStat.def(),
             )
             .select_user_account_access_cols()
-            .column_as(
-                user_token_usage_stat::Column::TokensConsumed,
-                "tokens_consumed",
-            )
+            .select_user_tokens_consumed()
             .into_model::<UserWithAccountAccessAndUsage>()
             .one(conn)
             .await
@@ -102,6 +112,23 @@ impl UserCtrl {
             .ok_or(AppError::NotFound("User not found".to_string()))?;
 
         Ok(user)
+    }
+
+    pub async fn all(conn: &DatabaseConnection) -> AppResult<Vec<UserWithAccountAccessAndUsage>> {
+        let users = User::find()
+            .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
+            .join(
+                JoinType::InnerJoin,
+                user::Relation::UserTokenUsageStat.def(),
+            )
+            .select_user_account_access_cols()
+            .select_user_tokens_consumed()
+            .into_model::<UserWithAccountAccessAndUsage>()
+            .all(conn)
+            .await
+            .context("Error fetching users")?;
+
+        Ok(users)
     }
 
     pub async fn all_with_active_subscriptions(
@@ -120,7 +147,7 @@ impl UserCtrl {
         Ok(users)
     }
 
-    pub async fn all_with_available_quota(
+    pub async fn all_available_for_processing(
         conn: &DatabaseConnection,
     ) -> AppResult<Vec<UserWithAccountAccessAndUsage>> {
         let today = chrono::Utc::now().date_naive();
@@ -560,9 +587,10 @@ mod tests {
         dotenvy::from_filename(config_path.join(".env.integration")).unwrap();
         std::env::set_var("APP_DIR", config_path);
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
-        let users = UserCtrl::all_with_available_quota(&Database::connect(db_url).await.unwrap())
-            .await
-            .unwrap();
+        let users =
+            UserCtrl::all_available_for_processing(&Database::connect(db_url).await.unwrap())
+                .await
+                .unwrap();
 
         dbg!(&users);
 

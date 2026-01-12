@@ -125,6 +125,20 @@ impl FairQueueInner {
     }
 }
 
+/// Guard that removes an email from the in_processing set when dropped.
+/// This ensures cleanup happens even if processing panics or returns early.
+pub struct ProcessingGuard {
+    email_id: u128,
+    in_processing_set: Arc<RwLock<HashSet<u128>>>,
+}
+
+impl Drop for ProcessingGuard {
+    fn drop(&mut self) {
+        let mut set = self.in_processing_set.write().unwrap();
+        set.remove(&self.email_id);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PromptPriorityQueue {
     inner: Arc<Mutex<FairQueueInner>>,
@@ -159,11 +173,13 @@ impl PromptPriorityQueue {
         inner.pop()
     }
 
-    /// When a processor finishes processing an email, it should call this method
-    /// to remove the email from the in_processing set
-    pub fn remove_from_processing(&self, email_id: u128) {
-        let mut in_processing_set = self.in_processing_set.write().unwrap();
-        in_processing_set.remove(&email_id);
+    /// Creates a guard that will remove the email from the in_processing set when dropped.
+    /// Use this to ensure cleanup happens even if processing panics or returns early.
+    pub fn create_processing_guard(&self, email_id: u128) -> ProcessingGuard {
+        ProcessingGuard {
+            email_id,
+            in_processing_set: self.in_processing_set.clone(),
+        }
     }
 
     pub fn num_in_queue(&self, email_address: &str) -> usize {
@@ -284,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_from_processing() {
+    fn test_processing_guard() {
         let queue = PromptPriorityQueue::new();
 
         queue.push("user@test.com".to_string(), 1, Priority::Low);
@@ -294,8 +310,12 @@ mod tests {
         let _ = queue.pop();
         assert_eq!(queue.num_in_processing(), 1); // Still in processing
 
-        // Mark as done
-        queue.remove_from_processing(1);
+        // Create guard and drop it to mark as done
+        {
+            let _guard = queue.create_processing_guard(1);
+            assert_eq!(queue.num_in_processing(), 1); // Still in processing while guard exists
+        }
+        // Guard dropped, email removed from processing
         assert_eq!(queue.num_in_processing(), 0);
 
         // Can now re-add the same email_id

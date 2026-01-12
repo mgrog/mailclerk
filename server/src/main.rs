@@ -31,7 +31,6 @@ use std::{
 use auth::session_store::AuthSessionStore;
 use axum::{extract::FromRef, Router};
 use db_core::prelude::*;
-use state::email_processor::ActiveEmailProcessorMap;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use prompt::priority_queue::PromptPriorityQueue;
@@ -40,6 +39,7 @@ use reqwest::Certificate;
 use routes::AppRouter;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use server_config::get_cert;
+use state::email_processor::ActiveEmailProcessorMap;
 use tokio::{signal, task::JoinHandle};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -137,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
             .add(Job::new_one_shot(
                 Duration::from_secs(2),
                 move |_uuid, _l| {
-                    state::tasks::run_email_processing_loop(queue.clone(), map.clone());
+                    state::tasks::run_email_queueing_loop(queue.clone(), map.clone());
                 },
             )?)
             .await?;
@@ -146,27 +146,30 @@ async fn main() -> anyhow::Result<()> {
         let map = email_processing_map.clone();
         scheduler
             .add(Job::new_one_shot(
-                chrono::Duration::minutes(30).to_std().unwrap(),
+                Duration::from_secs(5),
                 move |_uuid, _l| {
-                    state::tasks::run_processor_cleanup_loop(queue.clone(), map.clone());
+                    state::tasks::run_email_processing_loop(queue.clone(), map.clone());
                 },
             )?)
             .await?;
 
         let state_clone = state.clone();
         let map = email_processing_map.clone();
-        // Start of every minute, create processors for active users
+        // Every 60 seconds, create processors for active users
         scheduler
-            .add(Job::new_async("0 * * * * *", move |uuid, l| {
-                create_processors_for_users(uuid, l, state_clone.clone(), map.clone())
-            })?)
+            .add(Job::new_repeated_async(
+                Duration::from_secs(60),
+                move |uuid, l| {
+                    create_processors_for_users(uuid, l, state_clone.clone(), map.clone())
+                },
+            )?)
             .await?;
 
         let http_client = state.http_client.clone();
         let conn = state.conn.clone();
-        // Start of every hour, run auto email cleanup
+        // Every 30 minutes, run auto email cleanup
         scheduler
-            .add(Job::new_async("0 0 * * * *", move |uuid, mut l| {
+            .add(Job::new_async("0 */30 * * * *", move |uuid, mut l| {
                 let http_client = http_client.clone();
                 let conn = conn.clone();
                 Box::pin(async move {

@@ -143,4 +143,11 @@ impl ActiveEmailProcessorMap {
     pub fn len(&self) -> usize {
         self.active_processors.read().unwrap().len()
     }
+
+    pub fn retain<F>(&self, f: F)
+    where
+        F: FnMut(&String, &mut Arc<EmailProcessor>) -> bool,
+    {
+        self.active_processors.write().unwrap().retain(f);
+    }
 }

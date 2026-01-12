@@ -30,15 +30,13 @@ impl GmailConfig {
 pub struct Category {
     pub content: String,
     pub mail_label: String,
-    pub gmail_categories: Vec<String>,
-    pub important: Option<bool>,
+    pub priority: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Heuristic {
     pub from: String,
     pub mail_label: String,
-    pub gmail_categories: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -222,13 +220,6 @@ lazy_static! {
     pub static ref UNKNOWN_CATEGORY: Category = Category {
         content: "Unknown".to_string(),
         mail_label: "uncategorized".to_string(),
-        gmail_categories: vec![],
-        important: None,
-    };
-    pub static ref DAILY_SUMMARY_CATEGORY: Category = Category {
-        content: "".to_string(),
-        mail_label: "daily_summary".to_string(),
-        gmail_categories: vec![],
-        important: None,
+        priority: 2
     };
 }

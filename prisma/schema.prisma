@@ -32,10 +32,12 @@ model processed_email {
   category       String   @db.VarChar
   extracted_task String?  @db.Text
   ai_answer      String   @db.VarChar
+  history_id     BigInt
   user           user     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([user_id])
   @@index([user_id, category])
+  @@index([user_id, history_id(sort: Desc)])
 }
 
 model user_account_access {
@@ -75,21 +77,20 @@ enum subscription_status {
 }
 
 model user {
-  id                           Int                           @id @default(autoincrement())
-  email                        String                        @unique @db.VarChar
-  subscription_status          subscription_status           @default(UNPAID)
-  last_successful_payment_at   DateTime?                     @db.Timestamptz(6)
-  last_payment_attempt_at      DateTime?                     @db.Timestamptz(6)
-  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
-  updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
-  processed_daily_summaries    processed_daily_summary[]
-  processed_emails             processed_email[]
-  user_token_usage_stats       user_token_usage_stat[]
-  default_email_rule_overrides default_email_rule_override[]
-  custom_email_rules           custom_email_rule[]
-  auto_cleanup_settings        auto_cleanup_setting[]
-  user_account_access          user_account_access?
-  setup_completed              Boolean                       @default(false)
+  id                         Int                       @id @default(autoincrement())
+  email                      String                    @unique @db.VarChar
+  subscription_status        subscription_status       @default(UNPAID)
+  last_successful_payment_at DateTime?                 @db.Timestamptz(6)
+  last_payment_attempt_at    DateTime?                 @db.Timestamptz(6)
+  created_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  processed_daily_summaries  processed_daily_summary[]
+  processed_emails           processed_email[]
+  user_token_usage_stats     user_token_usage_stat[]
+  user_email_rules           user_email_rule[]
+  auto_cleanup_settings      auto_cleanup_setting[]
+  user_account_access        user_account_access?
+  setup_completed            Boolean                   @default(false)
 }
 
 enum cleanup_action {
@@ -113,20 +114,7 @@ model auto_cleanup_setting {
   @@index([user_id])
 }
 
-model default_email_rule_override {
-  id          Int      @id @default(autoincrement())
-  user_id     Int
-  mail_label  String   @db.VarChar
-  is_disabled Boolean  @default(false)
-  created_at  DateTime @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime @default(now()) @db.Timestamptz(6)
-
-  user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([user_id])
-}
-
-model custom_email_rule {
+model user_email_rule {
   id           Int      @id @default(autoincrement())
   user_id      Int
   description  String
@@ -141,7 +129,7 @@ model custom_email_rule {
   @@index([user_id])
 }
 
-model email_embeddings {
+model email_embedding {
   id        Int                         @id @default(autoincrement())
   email_id  String                      @db.VarChar
   embedding Unsupported("vector(1024)")
