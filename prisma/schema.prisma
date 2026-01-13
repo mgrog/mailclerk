@@ -28,11 +28,10 @@ model processed_email {
   id             String   @id @db.VarChar
   user_id        Int
   processed_at   DateTime @default(now()) @db.Timestamptz(6)
-  priority       String   @db.VarChar
   category       String   @db.VarChar
   extracted_task String?  @db.Text
   ai_answer      String   @db.VarChar
-  history_id     BigInt
+  history_id     Decimal  @db.Decimal(20, 0)
   user           user     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([user_id])

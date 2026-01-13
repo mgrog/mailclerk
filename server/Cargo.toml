@@ -44,6 +44,7 @@ num-derive = "0.4.2"
 num-traits = "0.2.19"
 lib-utils = { path = "../libs/lib-utils" }
 lib-email-clients = { path = "../libs/lib-email-clients" }
+tokenizer = { path = "../libs/tokenizer" }
 url = "2.5.3"
 oauth2 = "4.4.2"
 async-session = "3.0.0"
@@ -65,10 +66,12 @@ features = [
     "debug-print",
     "runtime-tokio-native-tls",
     "sqlx-postgres",
+    "with-rust_decimal",
     # "sqlx-mysql",
     # "sqlx-sqlite",
 ]
 
 [features]
 mock = ["sea-orm/mock"]
+integration = []
 

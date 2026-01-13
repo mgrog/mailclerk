@@ -10,8 +10,8 @@ use entity::{email_training, prelude::*, processed_email};
 use indexmap::IndexSet;
 use num_traits::FromPrimitive;
 use sea_orm::{
-    entity::*, query::*, sea_query::OnConflict, ActiveValue, DatabaseConnection, EntityTrait,
-    FromQueryResult,
+    entity::*, prelude::Decimal, query::*, sea_query::OnConflict, ActiveValue, DatabaseConnection,
+    EntityTrait, FromQueryResult,
 };
 use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::watch;
@@ -44,7 +44,6 @@ lazy_static::lazy_static!(
     static ref UNKNOWN_RULE: EmailRule = EmailRule {
             prompt_content: "Unknown".to_string(),
             mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
-            associated_email_client_category: None,
         };
 );
 
@@ -392,11 +391,11 @@ impl EmailProcessor {
             processed_email::ActiveModel {
                 id: ActiveValue::Set(email_message.id.clone()),
                 user_id: ActiveValue::Set(self.user_id),
-                labels_applied: ActiveValue::Set(data.label_update.added),
-                labels_removed: ActiveValue::Set(data.label_update.removed),
                 category: ActiveValue::Set(data.prompt_return_data.email_rule.mail_label.clone()),
                 ai_answer: ActiveValue::Set(data.prompt_return_data.ai_answer.clone()),
                 processed_at: ActiveValue::NotSet,
+                extracted_task: ActiveValue::NotSet,
+                history_id: ActiveValue::Set(Decimal::from(email_message.history_id)),
             },
         )
         .await
@@ -424,6 +423,21 @@ impl EmailProcessor {
             .await
             .context("Failed to fetch email")?;
 
+        // Estimate token usage and check against remaining quota (allow up to 1% over)
+        let email_text = email_message.to_string();
+        let estimated_tokens = tokenizer::token_count(&email_text).unwrap_or(0) as i64;
+        let quota_buffer = *DAILY_QUOTA / 100; // 1% buffer
+        if estimated_tokens > self.quota_remaining() + quota_buffer {
+            tracing::info!(
+                "Estimated token usage ({}) exceeds remaining quota ({}) by more than 1% for {}. Cancelling processor.",
+                estimated_tokens,
+                self.quota_remaining(),
+                self.email_address
+            );
+            self.cancel();
+            return Ok(());
+        }
+
         self.rate_limiters.acquire_one().await;
 
         let result = self.parse_and_prompt_email(&email_message).await?;
@@ -439,11 +453,6 @@ impl EmailProcessor {
                 }
             };
         };
-        // Todo: Update this to use new label system
-        let label_update = LabelUpdate {
-            added: None,
-            removed: None,
-        };
 
         let token_usage = result.token_usage;
 
@@ -452,7 +461,6 @@ impl EmailProcessor {
                 &email_message,
                 EmailProcessingData {
                     prompt_return_data: result,
-                    label_update,
                 },
             )
             .await
@@ -679,5 +687,4 @@ pub struct PromptReturnData {
 #[derive(Debug)]
 pub struct EmailProcessingData {
     pub prompt_return_data: PromptReturnData,
-    pub label_update: LabelUpdate,
 }

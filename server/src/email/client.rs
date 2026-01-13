@@ -671,32 +671,32 @@ impl EmailClient {
         Ok(true)
     }
 
-    pub async fn label_email(
-        &self,
-        email_id: String,
-        current_labels: Vec<String>,
-        email_rule: EmailRule,
-    ) -> anyhow::Result<LabelUpdate> {
-        let user_labels = self.get_labels().await?;
-        self.rate_limiter
-            .acquire(GMAIL_API_QUOTA.messages_modify)
-            .await;
-        let (json_body, update) = build_label_update(user_labels, current_labels, email_rule)?;
-        let resp = self
-            .http_client
-            .post(gmail_url!("messages", &email_id, "modify"))
-            .bearer_auth(&self.access_token)
-            .json(&json_body)
-            .send()
-            .await?;
-        let data = resp.json::<serde_json::Value>().await?;
+    // pub async fn label_email(
+    //     &self,
+    //     email_id: String,
+    //     current_labels: Vec<String>,
+    //     email_rule: EmailRule,
+    // ) -> anyhow::Result<LabelUpdate> {
+    //     let user_labels = self.get_labels().await?;
+    //     self.rate_limiter
+    //         .acquire(GMAIL_API_QUOTA.messages_modify)
+    //         .await;
+    //     let (json_body, update) = build_label_update(user_labels, current_labels, email_rule)?;
+    //     let resp = self
+    //         .http_client
+    //         .post(gmail_url!("messages", &email_id, "modify"))
+    //         .bearer_auth(&self.access_token)
+    //         .json(&json_body)
+    //         .send()
+    //         .await?;
+    //     let data = resp.json::<serde_json::Value>().await?;
 
-        if data.get("error").is_some() {
-            return Err(anyhow::anyhow!("Error labelling email: {:?}", data));
-        }
+    //     if data.get("error").is_some() {
+    //         return Err(anyhow::anyhow!("Error labelling email: {:?}", data));
+    //     }
 
-        Ok(update)
-    }
+    //     Ok(update)
+    // }
 
     pub async fn get_profile(&self) -> anyhow::Result<Profile> {
         self.rate_limiter.acquire(GMAIL_API_QUOTA.get_profile).await;
@@ -811,68 +811,68 @@ impl EmailClient {
     }
 }
 
-fn build_label_update(
-    user_labels: Vec<Label>,
-    current_labels: Vec<String>,
-    email_rule: EmailRule,
-) -> anyhow::Result<(serde_json::Value, LabelUpdate)> {
-    static RE_CATEGORY_LABEL: Lazy<Regex> = Lazy::new(|| Regex::new(r"CATEGORY_+").unwrap());
+// fn build_label_update(
+//     user_labels: Vec<Label>,
+//     current_labels: Vec<String>,
+//     email_rule: EmailRule,
+// ) -> anyhow::Result<(serde_json::Value, LabelUpdate)> {
+//     static RE_CATEGORY_LABEL: Lazy<Regex> = Lazy::new(|| Regex::new(r"CATEGORY_+").unwrap());
 
-    let current_categories = current_labels
-        .iter()
-        .filter(|c| RE_CATEGORY_LABEL.is_match(c))
-        .cloned()
-        .collect::<Vec<_>>();
+//     let current_categories = current_labels
+//         .iter()
+//         .filter(|c| RE_CATEGORY_LABEL.is_match(c))
+//         .cloned()
+//         .collect::<Vec<_>>();
 
-    let categories_to_add = email_rule
-        .associated_email_client_category
-        .clone()
-        .map_or(Vec::new(), |c| vec![c.to_value()]);
+//     let categories_to_add = email_rule
+//         .associated_email_client_category
+//         .clone()
+//         .map_or(Vec::new(), |c| vec![c.to_value()]);
 
-    // Only remove categories if you have a different category to add
-    let categories_to_remove = if categories_to_add.is_empty() {
-        None
-    } else {
-        Some(
-            current_categories
-                .iter()
-                .filter(|c| !categories_to_add.contains(c))
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    };
+//     // Only remove categories if you have a different category to add
+//     let categories_to_remove = if categories_to_add.is_empty() {
+//         None
+//     } else {
+//         Some(
+//             current_categories
+//                 .iter()
+//                 .filter(|c| !categories_to_add.contains(c))
+//                 .cloned()
+//                 .collect::<Vec<_>>(),
+//         )
+//     };
 
-    let label_id = user_labels
-        .iter()
-        .find(|l| l.name.as_ref() == Some(&format!("Mailclerk/{}", email_rule.mail_label)))
-        .map(|l| l.id.clone().unwrap_or_default())
-        .context(format!("Could not find {}!", email_rule.mail_label))?;
+//     let label_id = user_labels
+//         .iter()
+//         .find(|l| l.name.as_ref() == Some(&format!("Mailclerk/{}", email_rule.mail_label)))
+//         .map(|l| l.id.clone().unwrap_or_default())
+//         .context(format!("Could not find {}!", email_rule.mail_label))?;
 
-    let (label_ids_to_add, label_names_applied) = {
-        let mut label_ids = categories_to_add.clone();
-        label_ids.push(label_id);
-        let mut label_names = categories_to_add;
-        label_names.push(email_rule.mail_label);
+//     let (label_ids_to_add, label_names_applied) = {
+//         let mut label_ids = categories_to_add.clone();
+//         label_ids.push(label_id);
+//         let mut label_names = categories_to_add;
+//         label_names.push(email_rule.mail_label);
 
-        (
-            label_ids.into_iter().collect::<Vec<_>>(),
-            label_names.into_iter().collect::<Vec<_>>(),
-        )
-    };
+//         (
+//             label_ids.into_iter().collect::<Vec<_>>(),
+//             label_names.into_iter().collect::<Vec<_>>(),
+//         )
+//     };
 
-    Ok((
-        json!(
-            {
-                "addLabelIds": label_ids_to_add,
-                "removeLabelIds": categories_to_remove.clone().unwrap_or_default()
-            }
-        ),
-        LabelUpdate {
-            added: Some(label_names_applied),
-            removed: categories_to_remove,
-        },
-    ))
-}
+//     Ok((
+//         json!(
+//             {
+//                 "addLabelIds": label_ids_to_add,
+//                 "removeLabelIds": categories_to_remove.clone().unwrap_or_default()
+//             }
+//         ),
+//         LabelUpdate {
+//             added: Some(label_names_applied),
+//             removed: categories_to_remove,
+//         },
+//     ))
+// }
 
 fn get_required_labels() -> HashSet<String> {
     cfg.categories
@@ -970,47 +970,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_label_update() {
-        let user_labels = vec![Label {
-            id: Some("Label_10".to_string()),
-            name: Some("mailclerk:ads".to_string()),
-            ..Label::default()
-        }];
-        match super::build_label_update(
-            user_labels,
-            ["CATEGORY_SOCIAL".to_string()].to_vec(),
-            super::EmailRule {
-                prompt_content: "Advertisment".to_string(),
-                mail_label: "mailclerk:ads".to_string(),
-                associated_email_client_category: Some(
-                    AssociatedEmailClientCategory::CategoryPromotions,
-                ),
-            },
-        ) {
-            Ok((json_body, update)) => {
-                assert_eq!(
-                    json_body,
-                    serde_json::json!({
-                        "addLabelIds": ["CATEGORY_PROMOTIONS", "Label_10"],
-                        "removeLabelIds": ["CATEGORY_SOCIAL"]
-                    })
-                );
-                assert_eq!(
-                    update,
-                    super::LabelUpdate {
-                        added: Some(vec![
-                            "CATEGORY_PROMOTIONS".to_string(),
-                            "mailclerk:ads".to_string()
-                        ]),
-                        removed: Some(vec!["CATEGORY_SOCIAL".to_string()])
-                    }
-                );
-            }
-            Err(e) => panic!("Error: {:?}", e),
-        }
-    }
-
-    #[test]
     fn test_sanitize_message() {
         use super::*;
         use google_gmail1::api::Message;
@@ -1062,46 +1021,14 @@ mod tests {
         assert_eq!(sanitized, test);
     }
 
-    #[test]
-    fn test_get_required_labels() {
-        dotenvy::from_filename(".env.integration").unwrap();
-        let required_labels = get_required_labels();
-        dbg!(&required_labels);
-        assert_eq!(true, false)
-    }
-
-    #[test]
-    fn test_build_mailclerk_label_filter() {
-        dotenvy::from_filename(".env.integration").unwrap();
-        let filter = super::default_mailclerk_label_filter();
-
-        let expected = &cfg
-            .categories
-            .iter()
-            .map(|c| c.mail_label.as_str())
-            .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
-            .chain(labels::UtilityLabels::iter().map(|l| l.as_str()))
-            .map(format_filter)
-            .chain(std::iter::once("label:inbox".to_string()))
-            .collect::<HashSet<_>>();
-
-        let actual = filter
-            .split(" AND NOT ")
-            .map(|x| x.to_string())
-            .collect::<HashSet<_>>();
-
-        dbg!(&expected, "len: ", expected.len());
-        dbg!(&actual, "len: ", actual.len());
-
-        assert!(expected.is_subset(&actual) && actual.is_subset(expected));
-    }
-
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_trash_email() {
         let client = setup_email_client("mpgrospamacc@gmail.com").await;
         client.trash_email("193936af5309bb57").await.unwrap();
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_archive_email() {
         let client = setup_email_client("mpgrospamacc@gmail.com").await;

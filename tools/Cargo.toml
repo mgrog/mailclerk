@@ -25,10 +25,10 @@ path = "src/bin/cosine_similarity.rs"
 [dependencies]
 # -- App Crates
 lib-utils = { path = "../libs/lib-utils" }
+tokenizer = {path = "../libs/tokenizer"}
 # -- Others
 dotenvy = "0.15.7"
 rand = "0.8"
-kitoken = "0.10"
 itertools = "0.13"
 reqwest = { version = "0.12", features = ["json"] }
 serde_json = "1.0"

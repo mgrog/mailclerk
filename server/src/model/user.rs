@@ -13,6 +13,7 @@ use lib_utils::crypt;
 use sea_orm::DbBackend;
 
 use super::response::GmailApiTokenResponse;
+use super::user_email_rule::UserEmailRuleCtrl;
 
 trait UserAccountAccessCols {
     fn select_user_account_access_cols(self) -> Self;
@@ -47,6 +48,36 @@ impl UserTokensConsumedCols for Select<User> {
 pub struct UserCtrl;
 
 impl UserCtrl {
+    pub async fn create(conn: &DatabaseConnection, email: &str) -> AppResult<user::Model> {
+        let now = chrono::Utc::now().into();
+        let active_model = user::ActiveModel {
+            id: ActiveValue::NotSet,
+            email: ActiveValue::Set(email.to_string()),
+            subscription_status: ActiveValue::Set(SubscriptionStatus::Unpaid),
+            last_successful_payment_at: ActiveValue::Set(None),
+            last_payment_attempt_at: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now),
+            updated_at: ActiveValue::Set(now),
+            setup_completed: ActiveValue::Set(false),
+        };
+
+        let insert_result = User::insert(active_model).exec(conn).await;
+
+        match insert_result {
+            Ok(_) => {
+                let user = Self::get_by_email(conn, email).await?;
+                UserEmailRuleCtrl::create_default_rules(conn, user.id).await?;
+                Ok(user)
+            }
+            Err(DbErr::Query(RuntimeErr::SqlxError(sqlx::Error::Database(db_err))))
+                if db_err.is_unique_violation() =>
+            {
+                Self::get_by_email(conn, email).await
+            }
+            Err(e) => Err(e).context("Error creating user")?,
+        }
+    }
+
     pub async fn get_by_email(conn: &DatabaseConnection, email: &str) -> AppResult<user::Model> {
         let user = User::find()
             .filter(user::Column::Email.eq(email))
@@ -168,7 +199,7 @@ impl UserCtrl {
                 uaa.expires_at,
                 uaa.needs_reauthentication,
                 COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
-                GREATEST(latest_email_rule_override.updated_at, latest_custom_email_rule.updated_at) AS last_rule_update_time
+                latest_user_email_rule.updated_at AS last_rule_update_time
             FROM
                 "user" AS u
             JOIN
@@ -187,26 +218,10 @@ impl UserCtrl {
                                 updated_at,
                                 ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY updated_at DESC) AS row_num
                             FROM
-                                default_email_rule_override
+                                user_email_rule
                         ) AS subquery
                     WHERE row_num = 1
-                ) AS latest_email_rule_override ON u.id = latest_email_rule_override.user_id
-            LEFT JOIN
-                (
-                    SELECT
-                        user_id,
-                        updated_at
-                    FROM
-                        (
-                            SELECT
-                                user_id,
-                                updated_at,
-                                ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY updated_at DESC) AS row_num
-                            FROM
-                                custom_email_rule
-                        ) AS subquery
-                    WHERE row_num = 1
-                ) AS latest_custom_email_rule ON u.id = latest_custom_email_rule.user_id
+                ) AS latest_user_email_rule ON u.id = latest_user_email_rule.user_id
             WHERE
                 u.subscription_status = (CAST('ACTIVE' AS subscription_status))
                 AND ("user_token_usage_stat".tokens_consumed < $2 OR "user_token_usage_stat".tokens_consumed IS NULL)
@@ -550,10 +565,56 @@ mod tests {
 
     use crate::db_core::prelude::*;
     use crate::model::user::UserCtrl;
+    #[cfg(feature = "integration")]
+    use crate::model::user_email_rule::UserEmailRuleCtrl;
     use crate::server_config::cfg;
 
+    #[cfg(feature = "integration")]
+    async fn setup_test_env() -> DatabaseConnection {
+        let cargo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let proj_root = Path::new(&cargo_root).parent().unwrap();
+        let config_path = proj_root.join("config");
+        dotenvy::from_filename(config_path.join(".env.integration")).ok();
+        std::env::set_var("APP_DIR", &config_path);
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
+        Database::connect(db_url).await.unwrap()
+    }
+
+    #[cfg(feature = "integration")]
     #[tokio::test]
-    #[ignore]
+    async fn test_create_user() {
+        let conn = setup_test_env().await;
+        let test_email = format!("test_user_{}@example.com", chrono::Utc::now().timestamp());
+
+        // Create a new user
+        let user = UserCtrl::create(&conn, &test_email).await.unwrap();
+
+        assert_eq!(user.email, test_email);
+        assert_eq!(user.subscription_status, SubscriptionStatus::Unpaid);
+        assert!(!user.setup_completed);
+
+        // Verify default rules were created
+        let rules = UserEmailRuleCtrl::get_by_user_id(&conn, user.id)
+            .await
+            .unwrap();
+        assert_eq!(rules.len(), cfg.categories.len());
+
+        // Try to create the same user again (should return existing user)
+        let existing_user = UserCtrl::create(&conn, &test_email).await.unwrap();
+        assert_eq!(existing_user.id, user.id);
+
+        // Verify no duplicate rules were created
+        let rules_after = UserEmailRuleCtrl::get_by_user_id(&conn, user.id)
+            .await
+            .unwrap();
+        assert_eq!(rules_after.len(), cfg.categories.len());
+
+        // Cleanup
+        User::delete_by_id(user.id).exec(&conn).await.unwrap();
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test]
     async fn test_query_statement() {
         dotenvy::from_filename(".env.integration").unwrap();
         let daily_quota = cfg.api.token_limits.daily_user_quota;
@@ -577,6 +638,7 @@ mod tests {
         assert_eq!(query, "")
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_query() {
         let cargo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap();

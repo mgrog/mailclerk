@@ -14,7 +14,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::{request_tracing, ServerState};
 
-use super::{account_connection, auth, custom_email_rule, email, gmail_labels};
+use super::{account_connection, auth, email, gmail_labels, user_email_rule};
 
 #[cfg(debug_assertions)]
 mod dev {
@@ -102,7 +102,7 @@ impl AppRouter {
                 get(account_connection::check_account_connection),
             )
             // TODO Determine if it needs removing
-            .route("/custom_email_rule/test", post(custom_email_rule::test))
+            .route("/user_email_rule/test", post(user_email_rule::test))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
             .nest(
                 "/email",

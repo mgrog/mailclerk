@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use entity::processed_email;
-use entity::sea_orm_active_enums::{CleanupAction, SubscriptionStatus};
+use entity::sea_orm_active_enums::CleanupAction;
 use futures::stream::{self, StreamExt};
 use futures::FutureExt;
 use google_gmail1::api::ListMessagesResponse;
@@ -14,7 +14,6 @@ use tokio::task::JoinHandle;
 use tokio::time::interval;
 
 use crate::model::auto_cleanup_setting::AutoCleanupSettingCtrl;
-use crate::model::daily_email_summary::DailyEmailSentStatus;
 use crate::model::processed_email::ProcessedEmailCtrl;
 use crate::model::user::UserCtrl;
 use crate::prompt::priority_queue::PromptPriorityQueue;
@@ -25,7 +24,6 @@ use crate::{error::AppResult, ServerState};
 
 use super::email_processor::ActiveEmailProcessorMap;
 use crate::email::client::{EmailClient, MessageListOptions};
-use crate::email::daily_summary_mailer::DailySummaryMailer;
 
 pub async fn add_users_to_processing(
     state: ServerState,
@@ -68,28 +66,6 @@ pub async fn sweep_for_cancelled_subscriptions(
     }
 
     Ok(())
-}
-
-pub async fn send_user_daily_email_summary(
-    state: &ServerState,
-    user_id: i32,
-) -> AppResult<DailyEmailSentStatus> {
-    let user = UserCtrl::get_with_account_access_by_id(&state.conn, user_id).await?;
-
-    let is_subscribed = user.subscription_status == SubscriptionStatus::Active;
-
-    if !is_subscribed {
-        return Ok(DailyEmailSentStatus::NotSent(
-            "User is not subscribed".to_string(),
-        ));
-    }
-
-    DailySummaryMailer::new(state.conn.clone(), state.http_client.clone(), user)
-        .await?
-        .send()
-        .await;
-
-    Ok(DailyEmailSentStatus::Sent)
 }
 
 /// Task that triggers each processor to queue new emails concurrently.

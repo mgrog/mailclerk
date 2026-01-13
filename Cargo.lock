@@ -5555,6 +5555,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tokenizer",
  "tokenizers",
  "tokio",
  "tokio-cron-scheduler",
@@ -6653,11 +6654,11 @@ dependencies = [
  "anyhow",
  "dotenvy",
  "itertools 0.13.0",
- "kitoken",
  "lib-utils",
  "rand 0.8.5",
  "reqwest 0.12.7",
  "serde_json",
+ "tokenizer",
  "tokio",
 ]
 

@@ -259,6 +259,7 @@ mod tests {
     use super::*;
     use crate::testing::common::{get_test_user_claims, setup};
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_check_account_connection_ok() {
         // This test requires a valid email account mpgrospamacc@gmail.com to be present in the database
@@ -281,8 +282,8 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
-    #[ignore]
     async fn test_check_account_connection_missing_scopes() {
         // This test requires a valid email account
         const EMAIL: &str = "mtest4966@gmail.com";

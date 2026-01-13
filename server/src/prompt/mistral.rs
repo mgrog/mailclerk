@@ -221,7 +221,10 @@ pub enum ChatApiResponseOrError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "integration")]
     use crate::email::{rules::EmailRule, simplified_message::SimplifiedMessage};
+    #[cfg(feature = "integration")]
     use crate::testing::common::setup_email_client;
 
     #[test]
@@ -237,6 +240,7 @@ mod tests {
         assert_eq!(system_prompt(prompt_categories), expected);
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_send_category_prompt_custom_rule() {
         let http_client = HttpClient::new();
@@ -254,7 +258,6 @@ mod tests {
         let email_rules = UserEmailRules::new_with_default_rules(vec![EmailRule {
             prompt_content: test_content.clone(),
             mail_label: "seatgeek".to_string(),
-            associated_email_client_category: None,
         }]);
 
         let resp = send_category_prompt(&http_client, &rate_limiters, &msg, &email_rules)

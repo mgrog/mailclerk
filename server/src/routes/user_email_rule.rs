@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{auth::jwt::Claims, error::AppJsonResult};
 
-/// # POST /custom_email_rule/test
+/// # POST /user_email_rule/test
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TestCustomRuleBody {
+pub struct TestUserEmailRuleBody {
     pub email_summary: String,
     pub email_content: String,
     pub mail_label: String,
@@ -24,19 +24,18 @@ pub async fn test(
     State(http_client): State<HttpClient>,
     State(conn): State<DatabaseConnection>,
     State(rate_limiters): State<RateLimiters>,
-    Json(TestCustomRuleBody {
+    Json(TestUserEmailRuleBody {
         email_summary,
         email_content,
         mail_label,
-    }): Json<TestCustomRuleBody>,
-) -> AppJsonResult<CustomRuleResponse> {
+    }): Json<TestUserEmailRuleBody>,
+) -> AppJsonResult<UserEmailRuleResponse> {
     let user_id = claims.sub;
     let mut user_email_rules = UserEmailRules::from_user(&conn, user_id).await?;
 
-    user_email_rules.add_custom_rule(EmailRule {
+    user_email_rules.add_rule(EmailRule {
         prompt_content: email_summary.clone(),
         mail_label: mail_label.clone(),
-        associated_email_client_category: None,
     });
 
     let simplified_msg = SimplifiedMessage::from_string(email_content);
@@ -50,13 +49,13 @@ pub async fn test(
     .await?;
 
     let result = if response.category == email_summary {
-        CustomRuleResponse {
+        UserEmailRuleResponse {
             kind: Kind::Success,
             message: "Category matches expected".to_string(),
             ai_response: response.category,
         }
     } else {
-        CustomRuleResponse {
+        UserEmailRuleResponse {
             kind: Kind::Failure,
             message: "Category does not match expected".to_string(),
             ai_response: response.category,
@@ -75,7 +74,7 @@ pub enum Kind {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct CustomRuleResponse {
+pub struct UserEmailRuleResponse {
     kind: Kind,
     message: String,
     ai_response: String,

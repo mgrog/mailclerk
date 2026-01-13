@@ -329,6 +329,7 @@ fn create_processors_for_users(
 mod tests {
     use super::*;
     use std::net::SocketAddr;
+    #[cfg(feature = "integration")]
     use tokio::net::TcpListener;
 
     pub struct TestServer {
@@ -347,6 +348,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "integration")]
     pub async fn setup() -> anyhow::Result<TestServer> {
         dotenvy::dotenv().ok();
 
@@ -413,6 +415,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_server_starts() {
         let server = setup().await.expect("Failed to setup test server");
@@ -420,6 +423,7 @@ mod tests {
         server.shutdown().await;
     }
 
+    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_email_categorization() {
         use crate::email::client::{EmailClient, MessageListOptions};

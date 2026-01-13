@@ -1,7 +1,7 @@
 use anyhow::anyhow;
-use indoc::formatdoc;
 use axum::{extract::Multipart, extract::Query, extract::State, Json};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use indoc::formatdoc;
 use lettre::{
     message::{
         header::ContentType, Attachment as LettreAttachment, Mailbox, MultiPart as LettreMultiPart,
@@ -228,7 +228,12 @@ fn get_message_header(message: &google_gmail1::api::Message, name: &str) -> Opti
         .headers
         .as_ref()?
         .iter()
-        .find(|h| h.name.as_deref().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false))
+        .find(|h| {
+            h.name
+                .as_deref()
+                .map(|n| n.eq_ignore_ascii_case(name))
+                .unwrap_or(false)
+        })
         .and_then(|h| h.value.clone())
 }
 
@@ -318,7 +323,7 @@ fn extract_forward_metadata(message: &google_gmail1::api::Message) -> ForwardMet
     let (body_text, body_html) = message
         .payload
         .as_ref()
-        .map(|p| extract_body_from_payload(p))
+        .map(extract_body_from_payload)
         .unwrap_or((None, None));
 
     ForwardMetadata {
@@ -412,11 +417,7 @@ pub async fn send(
         reply_context = extract_reply_context(&original_message);
 
         // Auto-prefix subject with "Re:" if not already present
-        if !email_data
-            .subject
-            .to_lowercase()
-            .starts_with("re:")
-        {
+        if !email_data.subject.to_lowercase().starts_with("re:") {
             email_data.subject = format!("Re: {}", email_data.subject);
         }
     }
@@ -443,11 +444,7 @@ pub async fn send(
         }
 
         // Auto-prefix subject with "Fwd:" if not already present
-        if !email_data
-            .subject
-            .to_lowercase()
-            .starts_with("fwd:")
-        {
+        if !email_data.subject.to_lowercase().starts_with("fwd:") {
             email_data.subject = format!("Fwd: {}", email_data.subject);
         }
     }
@@ -586,9 +583,7 @@ fn build_email(
         AppError::BadRequest(format!("Invalid 'from' address '{}': {}", from_email, e))
     })?;
 
-    let mut builder = Message::builder()
-        .from(from_mailbox)
-        .subject(&data.subject);
+    let mut builder = Message::builder().from(from_mailbox).subject(&data.subject);
 
     // Add In-Reply-To header for replies
     if let Some(ref in_reply_to) = reply_context.in_reply_to {
@@ -991,46 +986,57 @@ mod tests {
 
     #[test]
     fn test_extract_reply_context_with_message_id() {
-        let mut message = google_gmail1::api::Message::default();
-        message.thread_id = Some("thread123".to_string());
-        message.payload = Some(google_gmail1::api::MessagePart {
-            headers: Some(vec![
-                google_gmail1::api::MessagePartHeader {
+        let message = google_gmail1::api::Message {
+            thread_id: Some("thread123".to_string()),
+            payload: Some(google_gmail1::api::MessagePart {
+                headers: Some(vec![google_gmail1::api::MessagePartHeader {
                     name: Some("Message-ID".to_string()),
                     value: Some("<original@example.com>".to_string()),
-                },
-            ]),
+                }]),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         let context = extract_reply_context(&message);
 
-        assert_eq!(context.in_reply_to, Some("<original@example.com>".to_string()));
-        assert_eq!(context.references, Some("<original@example.com>".to_string()));
+        assert_eq!(
+            context.in_reply_to,
+            Some("<original@example.com>".to_string())
+        );
+        assert_eq!(
+            context.references,
+            Some("<original@example.com>".to_string())
+        );
         assert_eq!(context.thread_id, Some("thread123".to_string()));
     }
 
     #[test]
     fn test_extract_reply_context_with_existing_references() {
-        let mut message = google_gmail1::api::Message::default();
-        message.thread_id = Some("thread456".to_string());
-        message.payload = Some(google_gmail1::api::MessagePart {
-            headers: Some(vec![
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("Message-ID".to_string()),
-                    value: Some("<current@example.com>".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("References".to_string()),
-                    value: Some("<first@example.com> <second@example.com>".to_string()),
-                },
-            ]),
+        let message = google_gmail1::api::Message {
+            thread_id: Some("thread456".to_string()),
+            payload: Some(google_gmail1::api::MessagePart {
+                headers: Some(vec![
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("Message-ID".to_string()),
+                        value: Some("<current@example.com>".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("References".to_string()),
+                        value: Some("<first@example.com> <second@example.com>".to_string()),
+                    },
+                ]),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         let context = extract_reply_context(&message);
 
-        assert_eq!(context.in_reply_to, Some("<current@example.com>".to_string()));
+        assert_eq!(
+            context.in_reply_to,
+            Some("<current@example.com>".to_string())
+        );
         assert_eq!(
             context.references,
             Some("<first@example.com> <second@example.com> <current@example.com>".to_string())
@@ -1051,24 +1057,26 @@ mod tests {
 
     #[test]
     fn test_get_message_header() {
-        let mut message = google_gmail1::api::Message::default();
-        message.payload = Some(google_gmail1::api::MessagePart {
-            headers: Some(vec![
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("From".to_string()),
-                    value: Some("sender@example.com".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("Subject".to_string()),
-                    value: Some("Test Subject".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("Date".to_string()),
-                    value: Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()),
-                },
-            ]),
+        let message = google_gmail1::api::Message {
+            payload: Some(google_gmail1::api::MessagePart {
+                headers: Some(vec![
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("From".to_string()),
+                        value: Some("sender@example.com".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("Subject".to_string()),
+                        value: Some("Test Subject".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("Date".to_string()),
+                        value: Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()),
+                    },
+                ]),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         assert_eq!(
             get_message_header(&message, "From"),
@@ -1083,41 +1091,55 @@ mod tests {
 
     #[test]
     fn test_extract_forward_metadata() {
-        let mut message = google_gmail1::api::Message::default();
-        message.payload = Some(google_gmail1::api::MessagePart {
-            mime_type: Some("text/plain".to_string()),
-            headers: Some(vec![
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("From".to_string()),
-                    value: Some("original-sender@example.com".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("To".to_string()),
-                    value: Some("original-recipient@example.com".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("Date".to_string()),
-                    value: Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()),
-                },
-                google_gmail1::api::MessagePartHeader {
-                    name: Some("Subject".to_string()),
-                    value: Some("Original Subject".to_string()),
-                },
-            ]),
-            body: Some(google_gmail1::api::MessagePartBody {
-                data: Some("Original email body content".as_bytes().to_vec()),
+        let message = google_gmail1::api::Message {
+            payload: Some(google_gmail1::api::MessagePart {
+                mime_type: Some("text/plain".to_string()),
+                headers: Some(vec![
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("From".to_string()),
+                        value: Some("original-sender@example.com".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("To".to_string()),
+                        value: Some("original-recipient@example.com".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("Date".to_string()),
+                        value: Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()),
+                    },
+                    google_gmail1::api::MessagePartHeader {
+                        name: Some("Subject".to_string()),
+                        value: Some("Original Subject".to_string()),
+                    },
+                ]),
+                body: Some(google_gmail1::api::MessagePartBody {
+                    data: Some("Original email body content".as_bytes().to_vec()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }),
             ..Default::default()
-        });
+        };
 
         let metadata = extract_forward_metadata(&message);
 
-        assert_eq!(metadata.from, Some("original-sender@example.com".to_string()));
-        assert_eq!(metadata.to, Some("original-recipient@example.com".to_string()));
-        assert_eq!(metadata.date, Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()));
+        assert_eq!(
+            metadata.from,
+            Some("original-sender@example.com".to_string())
+        );
+        assert_eq!(
+            metadata.to,
+            Some("original-recipient@example.com".to_string())
+        );
+        assert_eq!(
+            metadata.date,
+            Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string())
+        );
         assert_eq!(metadata.subject, Some("Original Subject".to_string()));
-        assert_eq!(metadata.body_text, Some("Original email body content".to_string()));
+        assert_eq!(
+            metadata.body_text,
+            Some("Original email body content".to_string())
+        );
     }
 
     #[test]
