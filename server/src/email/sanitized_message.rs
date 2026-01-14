@@ -26,6 +26,7 @@ pub struct SanitizedMessage {
     pub history_id: u64,
     pub internal_date: i64,
     pub from: Option<String>,
+    pub snippet: Option<String>,
     pub subject: Option<String>,
     pub body: Option<String>,
     pub webview: Option<String>,
@@ -40,6 +41,7 @@ impl SanitizedMessage {
         let label_ids = msg.label_ids.unwrap_or_default();
         let history_id = msg.history_id.unwrap_or(0);
         let internal_date = msg.internal_date.unwrap_or(0);
+        let snippet = msg.snippet;
 
         // Try RAW format first (contains full MIME message)
         if let Some(raw) = &msg.raw {
@@ -69,6 +71,7 @@ impl SanitizedMessage {
                 thread_id,
                 history_id,
                 internal_date,
+                snippet,
                 from,
                 subject,
                 body,
@@ -83,6 +86,7 @@ impl SanitizedMessage {
             thread_id,
             history_id,
             internal_date,
+            snippet,
             from: None,
             subject: None,
             body: None,

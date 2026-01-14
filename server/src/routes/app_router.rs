@@ -4,7 +4,7 @@ use axum::{
     extract::DefaultBodyLimit,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use http::HeaderValue;
@@ -112,6 +112,8 @@ impl AppRouter {
                         "/send",
                         post(email::send).layer(DefaultBodyLimit::max(25 * 1024 * 1024)), // 25MB limit for attachments
                     )
+                    .route("/mark-as-read", put(email::mark_as_read))
+                    .route("/mark-as-unread", put(email::mark_as_unread))
                     .with_state(state.clone()),
             )
             .layer(CookieManagerLayer::new())

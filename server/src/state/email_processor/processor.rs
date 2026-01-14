@@ -50,6 +50,7 @@ lazy_static::lazy_static!(
             mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
             extract_tasks: true,
         };
+    static ref EXCEPTION_RULES: &'static [&'static str] = &["Terms of Service Update", "Verification Code", "Security Alert"];
 );
 
 #[derive(Clone)]
@@ -306,23 +307,23 @@ impl EmailProcessor {
             .user_email_rules
             .data()
             .iter()
-            .find(|c| c.prompt_content.to_lowercase() == ai_answer.to_lowercase())
+            .find(|c| c.prompt_content.eq_ignore_ascii_case(&ai_answer))
             .unwrap_or(&UNKNOWN_RULE);
 
-        if let Some(from) = email_message.from.as_ref() {
-            if selected_email_rule.prompt_content != "Terms of Service Update"
-                && selected_email_rule.prompt_content != "Verification Code"
-                && selected_email_rule.prompt_content != "Security Alert"
-                && cfg.heuristics.iter().any(|h| from.contains(&h.from))
+        let mut heuristics_used = false;
+        if let Some(from) = email_message.from.as_deref() {
+            if confidence < cfg.model.email_confidence_threshold
+                && !EXCEPTION_RULES.contains(&selected_email_rule.prompt_content.as_str())
             {
-                selected_email_rule = HEURISTIC_EMAIL_RULES
+                if let Some(rule) = HEURISTIC_EMAIL_RULES
                     .iter()
                     .find(|c| from.contains(&c.prompt_content))
-                    .unwrap();
+                {
+                    selected_email_rule = rule;
+                    heuristics_used = true;
+                }
             }
         }
-
-        let heuristics_used = selected_email_rule.prompt_content != ai_answer;
 
         if confidence < cfg.model.email_confidence_threshold && !heuristics_used {
             selected_email_rule = &UNKNOWN_RULE;
@@ -379,15 +380,19 @@ impl EmailProcessor {
         Ok(())
     }
 
-    /// Check if a thread has any unread messages other than the current message
-    async fn check_thread_has_unread_reply(
+    /// Check thread status: unread replies, user replies, and multiple messages.
+    /// Returns (has_unread_reply, user_has_replied, is_thread)
+    async fn check_thread_status(
         &self,
         thread_id: &str,
         current_message_id: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<(bool, bool, bool)> {
         let thread = self.email_client.get_thread_by_id(thread_id).await?;
+        let messages = thread.messages.unwrap_or_default();
 
-        let has_unread_reply = thread.messages.unwrap_or_default().iter().any(|msg| {
+        let is_thread = messages.len() > 1;
+
+        let has_unread_reply = messages.iter().any(|msg| {
             let msg_id = msg.id.as_deref().unwrap_or_default();
             let is_different_message = msg_id != current_message_id;
             let is_unread = msg
@@ -398,7 +403,28 @@ impl EmailProcessor {
             is_different_message && is_unread
         });
 
-        Ok(has_unread_reply)
+        let user_has_replied = messages.iter().any(|msg| {
+            let msg_id = msg.id.as_deref().unwrap_or_default();
+            let is_different_message = msg_id != current_message_id;
+            let is_from_user = msg
+                .payload
+                .as_ref()
+                .and_then(|p| p.headers.as_ref())
+                .and_then(|headers| {
+                    headers.iter().find_map(|h| {
+                        if h.name.as_deref()?.eq_ignore_ascii_case("from") {
+                            h.value.clone()
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .map(|from| from.contains(&self.email_address))
+                .unwrap_or(false);
+            is_different_message && is_from_user
+        });
+
+        Ok((has_unread_reply, user_has_replied, is_thread))
     }
 
     async fn record_processed_email(
@@ -427,11 +453,11 @@ impl EmailProcessor {
             ActiveValue::Set(Some(json_tasks))
         };
 
-        // Check if there's an unread reply in the thread
-        let has_new_reply = self
-            .check_thread_has_unread_reply(&email_message.thread_id, &email_message.id)
+        // Check thread status: unread replies, user replies, and if it's a thread
+        let (has_new_reply, user_has_replied, is_thread) = self
+            .check_thread_status(&email_message.thread_id, &email_message.id)
             .await
-            .unwrap_or(false);
+            .unwrap_or((false, false, false));
 
         match ProcessedEmailCtrl::insert(
             &self.conn,
@@ -448,7 +474,8 @@ impl EmailProcessor {
                 history_id: ActiveValue::Set(Decimal::from(email_message.history_id)),
                 is_read: ActiveValue::Set(!email_message.label_ids.contains(&"UNREAD".to_string())),
                 tasks_done: ActiveValue::Set(false),
-                has_new_reply: ActiveValue::Set(has_new_reply),
+                has_new_reply: ActiveValue::Set(has_new_reply && user_has_replied),
+                is_thread: ActiveValue::Set(is_thread),
             },
         )
         .await
@@ -494,12 +521,15 @@ impl EmailProcessor {
         self.rate_limiters.acquire_one().await;
 
         let result = self.parse_and_prompt_email(&email_message).await?;
+
         if cfg.settings.training_mode {
             match self
                 .record_email_for_training(&email_message, &result)
                 .await
             {
-                Ok(_) => {}
+                Ok(_) => {
+                    tracing::info!("Recorded message {} for training", email_message.id);
+                }
                 Err(e) => {
                     // This is a non-critical error, so we log it and continue
                     tracing::error!("Error recording email for training: {:?}", e);

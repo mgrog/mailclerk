@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use axum::{
-    extract::{Multipart, Path, Query, State},
-    response::Html,
+    extract::{Multipart, State},
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -13,305 +12,16 @@ use lettre::{
     },
     Message,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     auth::jwt::Claims,
-    email::{
-        client::{EmailClient, MessageFormat, ThreadListOptions},
-        sanitized_message::{parsed_and_sanitized_gmail_thread, SanitizedMessage, SanitizedThread},
-    },
     error::{AppError, AppJsonResult},
-    model::{
-        processed_email::{FeedCursor, FeedEmail, ProcessedEmailCtrl},
-        user::UserCtrl,
-    },
-    util::{check_expired, html_escape},
+    util::html_escape,
     ServerState,
 };
 
-async fn fetch_email_client(
-    ServerState {
-        email_client_cache,
-        http_client,
-        conn,
-        ..
-    }: ServerState,
-    user_email: String,
-) -> anyhow::Result<EmailClient> {
-    // First, try to get from cache with read lock
-    {
-        let cache = email_client_cache.read().await;
-        if let Some(client) = cache.get(&user_email) {
-            if !check_expired(client.expires_at) {
-                return Ok(client.clone());
-            }
-        }
-    }
-
-    // Client missing or expired - create new one and insert with write lock
-    let user = UserCtrl::get_with_account_access_by_email(&conn, &user_email).await?;
-    let client = EmailClient::new(http_client, conn, user).await?;
-
-    let mut cache = email_client_cache.write().await;
-    cache.insert(user_email, client.clone());
-
-    Ok(client)
-}
-
-const DEFAULT_PAGE_SIZE: u32 = 20;
-const MAX_PAGE_SIZE: u32 = 100;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetMessagesByIdsParams {
-    /// User email to fetch messages for
-    pub email: String,
-    /// Comma-separated list of message IDs
-    pub message_ids: String,
-}
-
-pub async fn get_messages_by_ids(
-    State(state): State<ServerState>,
-    Query(params): Query<GetMessagesByIdsParams>,
-) -> AppJsonResult<Vec<google_gmail1::api::Message>> {
-    let message_ids: Vec<String> = params
-        .message_ids
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if message_ids.is_empty() {
-        return Err(AppError::BadRequest("No message IDs provided".into()));
-    }
-
-    let email_client = fetch_email_client(state, params.email).await?;
-    let messages = email_client
-        .get_messages_by_ids(&message_ids, MessageFormat::Raw)
-        .await?;
-
-    Ok(Json(messages))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetMessageByIdParams {
-    pub email: String,
-}
-
-pub async fn get_message_by_id(
-    State(state): State<ServerState>,
-    id: Path<String>,
-    params: Query<GetMessageByIdParams>,
-) -> Result<Html<String>, AppError> {
-    let user_email = &params.email;
-    let email_client = fetch_email_client(state, user_email.clone()).await?;
-    let messages = email_client
-        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw)
-        .await?;
-
-    let message = messages
-        .into_iter()
-        .filter_map(|m| SanitizedMessage::from_gmail_message(m).ok())
-        .next()
-        .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
-
-    Ok(Html(message.webview.unwrap()))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetAllEmailsQuery {
-    /// Cursor for pagination (opaque string from previous response)
-    pub cursor: Option<String>,
-    /// Number of items to return (defaults to 20, max 100)
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EmailSummary {
-    pub id: String,
-    pub thread_id: Option<String>,
-    pub subject: Option<String>,
-    pub from: Option<String>,
-    pub date: Option<String>,
-    pub snippet: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetAllEmailsResponse {
-    pub threads: Vec<SanitizedThread>,
-    /// Cursor for the next page, None if no more results
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-}
-
-/// # GET /email
-///
-/// Query parameters:
-/// - `cursor`: Optional cursor for pagination (from previous response)
-/// - `limit`: Optional number of items to return (default: 20, max: 100)
-pub async fn get_all(
-    claims: Claims,
-    State(state): State<ServerState>,
-    Query(query): Query<GetAllEmailsQuery>,
-) -> AppJsonResult<GetAllEmailsResponse> {
-    let user_email = &claims.email;
-    let limit = query.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
-    let cursor = query.cursor;
-
-    // Get the user's email client from the cache
-    let email_client = fetch_email_client(state.clone(), user_email.clone()).await?;
-
-    let options = ThreadListOptions {
-        page_token: cursor,
-        max_results: Some(limit + 1),
-        ..Default::default()
-    };
-    let response = email_client.get_threads(options).await?;
-    let list = response.threads.unwrap_or_default();
-
-    // Get thread IDs for batching
-    let ids: Vec<String> = list.iter().filter_map(|t| t.id.clone()).collect();
-
-    // Batch fetch full threads with messages
-    let threads = email_client.get_threads_by_ids(&ids).await?;
-
-    let has_more = threads.len() > limit as usize;
-    let threads_to_return: Vec<google_gmail1::api::Thread> = if has_more {
-        threads[..limit as usize].to_vec()
-    } else {
-        threads
-    };
-    let next_cursor = if has_more {
-        threads_to_return.last().and_then(|m| m.id.clone())
-    } else {
-        None
-    };
-
-    let threads: Vec<_> = threads_to_return
-        .into_iter()
-        .filter_map(|t| parsed_and_sanitized_gmail_thread(t).ok())
-        .collect();
-
-    Ok(Json(GetAllEmailsResponse {
-        threads,
-        next_cursor,
-        has_more,
-    }))
-}
-
-const DEFAULT_FEED_PAGE_SIZE: u64 = 20;
-const MAX_FEED_PAGE_SIZE: u64 = 100;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetFeedQuery {
-    /// Number of items to return (defaults to 50, max 100)
-    pub limit: Option<u64>,
-    /// Base64-encoded cursor for pagination
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FeedResponseItem {
-    #[serde(flatten)]
-    pub feed_email: FeedEmail,
-    pub message: Option<SanitizedMessage>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetFeedResponse {
-    pub emails: Vec<FeedResponseItem>,
-    /// Base64-encoded cursor for the next page, None if no more results
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-}
-
-/// # GET /email/feed
-///
-/// Returns processed emails sorted by weighted priority:
-/// 1. Due date urgency (unless tasks_done or 7+ days overdue)
-/// 2. New replies on unread emails
-/// 3. Unread emails by category priority
-/// 4. Everything else
-///
-/// Query parameters:
-/// - `limit`: Optional number of items to return (default: 20, max: 100)
-/// - `cursor`: Optional base64-encoded cursor for pagination
-pub async fn get_feed(
-    claims: Claims,
-    State(state): State<ServerState>,
-    Query(query): Query<GetFeedQuery>,
-) -> AppJsonResult<GetFeedResponse> {
-    let user_id = claims.sub;
-    let user_email = claims.email;
-    let limit = query
-        .limit
-        .unwrap_or(DEFAULT_FEED_PAGE_SIZE)
-        .min(MAX_FEED_PAGE_SIZE);
-
-    // Decode cursor if provided
-    let cursor = query
-        .cursor
-        .map(|c| {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(&c)
-                .map_err(|_| AppError::BadRequest("Invalid cursor".into()))?;
-            serde_json::from_slice::<FeedCursor>(&decoded)
-                .map_err(|_| AppError::BadRequest("Invalid cursor format".into()))
-        })
-        .transpose()?;
-
-    // Fetch one extra to determine if there are more results
-    let emails =
-        ProcessedEmailCtrl::get_feed_by_user(&state.conn, user_id, limit + 1, cursor).await?;
-
-    let has_more = emails.len() > limit as usize;
-    let emails: Vec<FeedEmail> = if has_more {
-        emails.into_iter().take(limit as usize).collect()
-    } else {
-        emails
-    };
-
-    // Generate next cursor from the last item
-    let next_cursor = if has_more {
-        emails.last().map(|email| {
-            let cursor = FeedCursor {
-                score: email.priority_score,
-                history_id: email.history_id,
-            };
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap())
-        })
-    } else {
-        None
-    };
-
-    let email_ids: Vec<&str> = emails.iter().map(|e| e.id.as_str()).collect();
-    let email_client = fetch_email_client(state, user_email).await?;
-    let messages = email_client
-        .get_messages_by_ids(&email_ids, MessageFormat::Raw)
-        .await?;
-    let emails = emails
-        .into_iter()
-        .zip(messages)
-        .map(|(e, m)| FeedResponseItem {
-            feed_email: e,
-            message: SanitizedMessage::from_gmail_message(m).ok(),
-        })
-        .collect();
-
-    Ok(Json(GetFeedResponse {
-        emails,
-        next_cursor,
-        has_more,
-    }))
-}
+use super::shared::{extract_body_from_payload, fetch_email_client, get_message_header};
 
 #[derive(Debug)]
 pub struct Attachment {
@@ -364,23 +74,6 @@ struct ForwardMetadata {
     body_html: Option<String>,
 }
 
-/// Extract a header value from a Gmail API Message payload
-fn get_message_header(message: &google_gmail1::api::Message, name: &str) -> Option<String> {
-    message
-        .payload
-        .as_ref()?
-        .headers
-        .as_ref()?
-        .iter()
-        .find(|h| {
-            h.name
-                .as_deref()
-                .map(|n| n.eq_ignore_ascii_case(name))
-                .unwrap_or(false)
-        })
-        .and_then(|h| h.value.clone())
-}
-
 /// Extract reply context from an original message
 fn extract_reply_context(message: &google_gmail1::api::Message) -> ReplyContext {
     let message_id = get_message_header(message, "Message-ID");
@@ -398,67 +91,6 @@ fn extract_reply_context(message: &google_gmail1::api::Message) -> ReplyContext 
         in_reply_to: message_id,
         references,
         thread_id: message.thread_id.clone(),
-    }
-}
-
-/// Extract body text from a Gmail message part recursively
-fn extract_body_from_payload(
-    part: &google_gmail1::api::MessagePart,
-) -> (Option<String>, Option<String>) {
-    let mime_type = part.mime_type.as_deref().unwrap_or("");
-
-    match mime_type {
-        "text/plain" => {
-            let text = part
-                .body
-                .as_ref()
-                .and_then(|b| b.data.as_ref())
-                .and_then(|d| String::from_utf8(d.clone()).ok());
-            (text, None)
-        }
-        "text/html" => {
-            let html = part
-                .body
-                .as_ref()
-                .and_then(|b| b.data.as_ref())
-                .and_then(|d| String::from_utf8(d.clone()).ok());
-            (None, html)
-        }
-        mime if mime.starts_with("multipart/") => {
-            let mut text = None;
-            let mut html = None;
-            if let Some(parts) = &part.parts {
-                for sub_part in parts {
-                    let (t, h) = extract_body_from_payload(sub_part);
-                    if t.is_some() && text.is_none() {
-                        text = t;
-                    }
-                    if h.is_some() && html.is_none() {
-                        html = h;
-                    }
-                }
-            }
-            (text, html)
-        }
-        _ => {
-            // Recurse into nested parts
-            if let Some(parts) = &part.parts {
-                let mut text = None;
-                let mut html = None;
-                for sub_part in parts {
-                    let (t, h) = extract_body_from_payload(sub_part);
-                    if t.is_some() && text.is_none() {
-                        text = t;
-                    }
-                    if h.is_some() && html.is_none() {
-                        html = h;
-                    }
-                }
-                (text, html)
-            } else {
-                (None, None)
-            }
-        }
     }
 }
 
@@ -804,6 +436,7 @@ fn build_email(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::html_escape;
     use axum::body::Body;
     use axum::extract::FromRequest;
     use axum::http::Request;
@@ -1201,6 +834,8 @@ mod tests {
 
     #[test]
     fn test_get_message_header() {
+        use super::super::shared::get_message_header;
+
         let message = google_gmail1::api::Message {
             payload: Some(google_gmail1::api::MessagePart {
                 headers: Some(vec![

@@ -49,25 +49,38 @@ impl ProcessedEmailCtrl {
 
     // const PRIORITY_SCORE_SQL: &'static str = "processed.email.history_id";
 
-    const PRIORITY_SCORE_SQL: &'static str = "CASE \
-            WHEN processed_email.due_date IS NOT NULL \
-                 AND processed_email.tasks_done = false \
-                 AND processed_email.due_date > NOW() - INTERVAL '7 days' \
-            THEN EXTRACT(EPOCH FROM (processed_email.due_date - NOW())) / 86400 \
-            WHEN processed_email.has_new_reply = true AND processed_email.is_read = false \
-            THEN 1000000 \
-            WHEN processed_email.is_read = false \
-            THEN 2000000 + (COALESCE(5 - user_email_rule.priority, 999) * 1000) \
-            ELSE 3000000 + (COALESCE(5 - user_email_rule.priority, 999) * 1000) \
-        END";
+    const PRIORITY_SCORE_SQL: &'static str = "(\
+            CASE \
+                WHEN processed_email.due_date IS NULL THEN 0 \
+                WHEN processed_email.tasks_done = true THEN 0 \
+                WHEN processed_email.due_date >= NOW() + INTERVAL '7 days' THEN -200 \
+                WHEN processed_email.due_date >= NOW() THEN -200 + (EXTRACT(EPOCH FROM (processed_email.due_date - NOW())) / 86400) * 100 / 7 \
+                WHEN processed_email.due_date >= NOW() - INTERVAL '7 days' THEN -300 \
+                ELSE 0 \
+            END \
+        ) + \
+        CASE \
+            WHEN processed_email.is_read = false THEN -10 \
+            ELSE 0 \
+        END + \
+        CASE \
+            WHEN processed_email.has_new_reply = true THEN -200 \
+            ELSE 0 \
+        END + \
+        COALESCE((4 - user_email_rule.priority) * 100, 200)";
 
     /// Get processed emails for a user sorted by weighted priority score with cursor pagination.
     ///
-    /// Priority tiers (lower score = higher priority):
-    /// 1. Due date urgency - UNLESS tasks_done = true OR 7+ days overdue (score: days until due, -7 to +∞)
-    /// 2. has_new_reply = true AND is_read = false (score: 1,000,000)
-    /// 3. Email priority AND is_read = false (score: 2,000,000 + priority * 1000)
-    /// 4. Everything else - read emails, done tasks, 7+ days overdue (score: 3,000,000 + priority * 1000)
+    /// Score calculation (lower score = higher priority):
+    /// - Base score starts at 0, penalties are subtracted based on urgency factors
+    /// - Due date penalty:
+    ///   - No due date or tasks_done: 0
+    ///   - 0-7 days before due date: linear from -200 to -300
+    ///   - 0-7 days overdue: -200
+    ///   - 7+ days overdue: 0
+    /// - is_read = false: -10
+    /// - has_new_reply = true: -200
+    /// - user_email_rule.priority: +(4 - priority) * 100
     pub async fn get_feed_by_user(
         conn: &DatabaseConnection,
         user_id: i32,
@@ -121,7 +134,7 @@ impl ProcessedEmailCtrl {
         }
 
         let rows: Vec<FeedEmail> = query
-            // .order_by_asc(priority_score_expr)
+            .order_by_asc(priority_score_expr)
             .order_by_desc(processed_email::Column::HistoryId)
             .limit(limit)
             .into_model()
@@ -167,6 +180,36 @@ impl ProcessedEmailCtrl {
         active_model: processed_email::ActiveModel,
     ) -> Result<InsertResult<processed_email::ActiveModel>, DbErr> {
         ProcessedEmail::insert(active_model).exec(conn).await
+    }
+
+    pub async fn mark_as_read(
+        conn: &DatabaseConnection,
+        message_id: &str,
+        user_id: i32,
+    ) -> AppResult<()> {
+        ProcessedEmail::update_many()
+            .col_expr(processed_email::Column::IsRead, Value::Bool(Some(true)).into())
+            .filter(processed_email::Column::Id.eq(message_id))
+            .filter(processed_email::Column::UserId.eq(user_id))
+            .exec(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_as_unread(
+        conn: &DatabaseConnection,
+        message_id: &str,
+        user_id: i32,
+    ) -> AppResult<()> {
+        ProcessedEmail::update_many()
+            .col_expr(processed_email::Column::IsRead, Value::Bool(Some(false)).into())
+            .filter(processed_email::Column::Id.eq(message_id))
+            .filter(processed_email::Column::UserId.eq(user_id))
+            .exec(conn)
+            .await?;
+
+        Ok(())
     }
 }
 

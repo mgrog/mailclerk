@@ -760,6 +760,40 @@ impl EmailClient {
         Ok(())
     }
 
+    pub async fn mark_email_as_read(&self, message_id: &str) -> anyhow::Result<()> {
+        self.rate_limiter
+            .acquire(GMAIL_API_QUOTA.messages_modify)
+            .await;
+        self.http_client
+            .post(gmail_url!("messages", message_id, "modify"))
+            .bearer_auth(&self.access_token)
+            .json(&json!({
+                "removeLabelIds": ["UNREAD"],
+                "addLabelIds": []
+            }))
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_email_as_unread(&self, message_id: &str) -> anyhow::Result<()> {
+        self.rate_limiter
+            .acquire(GMAIL_API_QUOTA.messages_modify)
+            .await;
+        self.http_client
+            .post(gmail_url!("messages", message_id, "modify"))
+            .bearer_auth(&self.access_token)
+            .json(&json!({
+                "removeLabelIds": [],
+                "addLabelIds": ["UNREAD"]
+            }))
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
     /// Get a message by ID with FULL format (includes headers in payload)
     /// Use this when you need access to headers like Message-ID, In-Reply-To, References
     pub async fn get_message_with_headers(&self, message_id: &str) -> anyhow::Result<Message> {

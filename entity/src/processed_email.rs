@@ -20,6 +20,7 @@ pub struct Model {
     pub has_new_reply: bool,
     pub ai_confidence: String,
     pub thread_id: String,
+    pub is_thread: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

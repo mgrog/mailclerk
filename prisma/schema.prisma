@@ -37,6 +37,7 @@ model processed_email {
   due_date        DateTime?
   is_read         Boolean   @default(false)
   tasks_done      Boolean   @default(false)
+  is_thread       Boolean
   has_new_reply   Boolean
   user            user      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
