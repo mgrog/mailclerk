@@ -134,6 +134,8 @@ pub async fn handler_auth_gmail_callback(
             ("code", code.as_str()),
             ("redirect_uri", redirect_uris[0].as_str()),
             ("grant_type", "authorization_code"),
+            ("access_type", "offline"),
+            ("prompt", "consent"),
         ])
         .send()
         .await
@@ -200,27 +202,10 @@ pub async fn handler_auth_gmail_callback(
         }
     }
 
-    let user = User::insert(user::ActiveModel {
-        id: ActiveValue::NotSet,
-        email: ActiveValue::Set(email.clone()),
-        created_at: ActiveValue::NotSet,
-        updated_at: ActiveValue::NotSet,
-        subscription_status: ActiveValue::NotSet,
-        last_payment_attempt_at: ActiveValue::NotSet,
-        last_successful_payment_at: ActiveValue::NotSet,
-        setup_completed: ActiveValue::Set(false),
-    })
-    .on_conflict(
-        OnConflict::column(user::Column::Email)
-            .do_nothing()
-            .to_owned(),
-    )
-    .exec_with_returning(&state.conn)
-    .await
-    .map_err(|e| {
-        tracing::error!("Error inserting user: {:?}", e);
-        AuthCallbackError::Unexpected(e.to_string())
-    })?;
+    let user = UserCtrl::create(&state.conn, &email)
+        .await
+        .inspect_err(|e| tracing::error!("Error inserting user: {} {:?}", email, e))
+        .map_err(|_| AuthCallbackError::Unexpected("User creation failed".to_string()))?;
 
     state
         .session_store
@@ -262,10 +247,8 @@ pub async fn handler_auth_gmail_callback(
         .do_nothing()
         .exec(&state.conn)
         .await
-        .map_err(|e| {
-            tracing::error!("Error inserting user account access: {:?}", e);
-            AuthCallbackError::Unexpected(e.to_string())
-        })?;
+        .inspect_err(|e| tracing::error!("Error inserting user account access: {:?}", e))
+        .map_err(|e| AuthCallbackError::Unexpected(e.to_string()))?;
 
     match user_account_access_insert_result {
         TryInsertResult::Inserted(_) | TryInsertResult::Conflicted => {
@@ -273,7 +256,7 @@ pub async fn handler_auth_gmail_callback(
             url.query_pairs_mut()
                 .append_pair("session", session_id.to_string().as_str());
 
-            return Ok(Redirect::to(url.as_str()).into_response());
+            Ok(Redirect::to(url.as_str()).into_response())
         }
         _ => {
             tracing::error!("Unexpected result from user account access insert");

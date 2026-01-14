@@ -41,9 +41,8 @@ async fn _missing_scopes(
     }
 
     let data = serde_json::from_value::<GoogleTokenInfo>(resp.clone())
-        .map_err(|e| {
+        .inspect_err(|_| {
             tracing::error!("Unexpected token info response: {:?}", resp);
-            e
         })
         .map_err(|_| ScopeError::UnexpectedError)?;
 
@@ -256,7 +255,9 @@ pub enum GmailAccountConnectionStatus {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "integration")]
     use super::*;
+    #[cfg(feature = "integration")]
     use crate::testing::common::{get_test_user_claims, setup};
 
     #[cfg(feature = "integration")]

@@ -36,6 +36,7 @@ pub async fn test(
     user_email_rules.add_rule(EmailRule {
         prompt_content: email_summary.clone(),
         mail_label: mail_label.clone(),
+        extract_tasks: false,
     });
 
     let simplified_msg = SimplifiedMessage::from_string(email_content);

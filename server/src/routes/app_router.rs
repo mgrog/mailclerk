@@ -101,13 +101,13 @@ impl AppRouter {
                 "/check_account_connection",
                 get(account_connection::check_account_connection),
             )
-            // TODO Determine if it needs removing
             .route("/user_email_rule/test", post(user_email_rule::test))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
             .nest(
                 "/email",
                 Router::new()
                     .route("/", get(email::get_all))
+                    .route("/feed", get(email::get_feed))
                     .route(
                         "/send",
                         post(email::send).layer(DefaultBodyLimit::max(25 * 1024 * 1024)), // 25MB limit for attachments
@@ -133,6 +133,10 @@ impl AppRouter {
             .route(
                 "/dev/messages",
                 get(email::get_messages_by_ids).with_state(state.clone()),
+            )
+            .route(
+                "/dev/message/:id",
+                get(email::get_message_by_id).with_state(state.clone()),
             );
 
         router

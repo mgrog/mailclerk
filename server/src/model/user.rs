@@ -322,18 +322,11 @@ impl AccountAccess for UserWithAccountAccess {
     }
 
     fn access_token(&self) -> anyhow::Result<String> {
-        let decoded = crypt::decrypt(&self.access_token)
-            .map_err(|_| anyhow!("Failed to decrypt access code for: {}", self.email))?;
-
-        Ok(decoded)
+        decrypt_token("access", &self.access_token, &self.email)
     }
 
     fn refresh_token(&self) -> anyhow::Result<String> {
-        let decoded = crypt::decrypt(&self.refresh_token)
-            .map_err(|_| anyhow!("Failed to decrypt refresh code for: {}", self.email))
-            .unwrap();
-
-        Ok(decoded)
+        decrypt_token("refresh", &self.refresh_token, &self.email)
     }
 
     fn get_expires_at(&self) -> DateTimeWithTimeZone {
@@ -386,18 +379,11 @@ impl AccountAccess for UserWithAccountAccessAndUsage {
     }
 
     fn access_token(&self) -> anyhow::Result<String> {
-        let decoded = crypt::decrypt(&self.access_token)
-            .map_err(|_| anyhow!("Failed to decrypt access code for: {}", self.email))?;
-
-        Ok(decoded)
+        decrypt_token("access", &self.access_token, &self.email)
     }
 
     fn refresh_token(&self) -> anyhow::Result<String> {
-        let decoded = crypt::decrypt(&self.refresh_token)
-            .map_err(|_| anyhow!("Failed to decrypt refresh code for: {}", self.email))
-            .unwrap();
-
-        Ok(decoded)
+        decrypt_token("refresh", &self.refresh_token, &self.email)
     }
 
     fn get_expires_at(&self) -> DateTimeWithTimeZone {
@@ -557,16 +543,35 @@ impl UserAccessCtrl {
     }
 }
 
+fn decrypt_token(kind: &str, token: &str, email: &str) -> anyhow::Result<String> {
+    let decoded = crypt::decrypt(token).map_err(|e| {
+        anyhow!(
+            "Failed to decrypt {} code: <{}> for: {} {:?}",
+            kind,
+            token,
+            email,
+            e,
+        )
+    })?;
+
+    Ok(decoded)
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "integration")]
     use std::path::Path;
 
+    #[cfg(feature = "integration")]
     use sea_orm::{Database, DbBackend};
 
+    #[cfg(feature = "integration")]
     use crate::db_core::prelude::*;
+    #[cfg(feature = "integration")]
     use crate::model::user::UserCtrl;
     #[cfg(feature = "integration")]
     use crate::model::user_email_rule::UserEmailRuleCtrl;
+    #[cfg(feature = "integration")]
     use crate::server_config::cfg;
 
     #[cfg(feature = "integration")]

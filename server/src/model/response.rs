@@ -1,4 +1,3 @@
-use lib_email_clients::gmail;
 use serde::{Deserialize, Serialize};
 
 use crate::routes::account_connection::GmailAccountConnectionStatus;

@@ -1,5 +1,4 @@
 use chrono::Utc;
-use google_gmail1::api::Label;
 use sea_orm::DatabaseConnection;
 
 use crate::db_core::prelude::*;
@@ -13,6 +12,8 @@ pub struct CreateUserEmailRule {
     pub semantic_key: String,
     pub name: String,
     pub mail_label: String,
+    pub extract_tasks: bool,
+    pub priority: i32,
 }
 
 impl UserEmailRuleCtrl {
@@ -59,13 +60,13 @@ impl UserEmailRuleCtrl {
         Ok(latest)
     }
 
-    pub async fn update_label_colors(
-        conn: &DatabaseConnection,
-        user_id: i32,
-        email_client_labels: Vec<Label>,
-    ) -> AppResult<()> {
-        unimplemented!()
-    }
+    // pub async fn update_label_colors(
+    //     conn: &DatabaseConnection,
+    //     user_id: i32,
+    //     email_client_labels: Vec<Label>,
+    // ) -> AppResult<()> {
+    //     unimplemented!()
+    // }
 
     pub async fn create_many(
         conn: &DatabaseConnection,
@@ -84,6 +85,8 @@ impl UserEmailRuleCtrl {
                 mail_label: ActiveValue::Set(rule.mail_label),
                 created_at: ActiveValue::Set(now),
                 updated_at: ActiveValue::Set(now),
+                extract_tasks: ActiveValue::Set(rule.extract_tasks),
+                priority: ActiveValue::Set(rule.priority),
             })
             .collect();
 
@@ -92,18 +95,17 @@ impl UserEmailRuleCtrl {
         Ok(())
     }
 
-    pub async fn create_default_rules(
-        conn: &DatabaseConnection,
-        user_id: i32,
-    ) -> AppResult<()> {
+    pub async fn create_default_rules(conn: &DatabaseConnection, user_id: i32) -> AppResult<()> {
         let default_rules: Vec<CreateUserEmailRule> = cfg
             .categories
             .iter()
             .map(|c| CreateUserEmailRule {
                 description: c.content.clone(),
-                semantic_key: c.mail_label.clone(),
+                semantic_key: c.content.clone(),
                 name: c.mail_label.clone(),
                 mail_label: c.mail_label.clone(),
+                extract_tasks: false,
+                priority: c.priority,
             })
             .collect();
 

@@ -1,178 +1,24 @@
-use ammonia::Builder;
 use anyhow::Context;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use google_gmail1::api::{Message, MessagePart};
 use indoc::formatdoc;
 use mail_parser::{MessageParser, MimeHeaders};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// HTML sanitizer configured for email content
-/// Allows common email formatting tags while removing dangerous elements
-static HTML_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
-    let mut tags: HashSet<&'static str> = HashSet::new();
-    // Common text formatting
-    tags.extend([
-        "a",
-        "abbr",
-        "acronym",
-        "address",
-        "b",
-        "bdi",
-        "bdo",
-        "big",
-        "blockquote",
-        "br",
-        "caption",
-        "center",
-        "cite",
-        "code",
-        "col",
-        "colgroup",
-        "dd",
-        "del",
-        "dfn",
-        "div",
-        "dl",
-        "dt",
-        "em",
-        "figcaption",
-        "figure",
-        "font",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "hr",
-        "i",
-        "img",
-        "ins",
-        "kbd",
-        "li",
-        "mark",
-        "ol",
-        "p",
-        "pre",
-        "q",
-        "rp",
-        "rt",
-        "ruby",
-        "s",
-        "samp",
-        "small",
-        "span",
-        "strike",
-        "strong",
-        "sub",
-        "sup",
-        "table",
-        "tbody",
-        "td",
-        "tfoot",
-        "th",
-        "thead",
-        "tr",
-        "tt",
-        "u",
-        "ul",
-        "var",
-        "wbr",
-    ]);
+/// Regex to strip HTML comments and script tags (safety net for JS-disabled WebView)
+static SANITIZE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?is)<!--[\s\S]*?-->|<script[\s\S]*?</script>").unwrap());
 
-    let mut tag_attributes: HashMap<&'static str, HashSet<&'static str>> = HashMap::new();
-
-    // Allow common attributes on most tags
-    let generic_attrs: HashSet<&'static str> = [
-        "align", "class", "dir", "id", "lang", "style", "title", "valign",
-    ]
-    .into_iter()
-    .collect();
-
-    for tag in &tags {
-        tag_attributes.insert(tag, generic_attrs.clone());
-    }
-
-    // Additional attributes for specific tags
-    // Note: "rel" is excluded because link_rel() manages it automatically
-    tag_attributes
-        .get_mut("a")
-        .unwrap()
-        .extend(["href", "name", "target"]);
-    tag_attributes
-        .get_mut("img")
-        .unwrap()
-        .extend(["src", "alt", "width", "height", "border"]);
-    tag_attributes.get_mut("table").unwrap().extend([
-        "border",
-        "cellpadding",
-        "cellspacing",
-        "width",
-        "height",
-        "bgcolor",
-    ]);
-    tag_attributes
-        .get_mut("td")
-        .unwrap()
-        .extend(["colspan", "rowspan", "width", "height", "bgcolor", "nowrap"]);
-    tag_attributes.get_mut("th").unwrap().extend([
-        "colspan", "rowspan", "width", "height", "bgcolor", "nowrap", "scope",
-    ]);
-    tag_attributes
-        .get_mut("col")
-        .unwrap()
-        .extend(["span", "width"]);
-    tag_attributes
-        .get_mut("colgroup")
-        .unwrap()
-        .extend(["span", "width"]);
-    tag_attributes
-        .get_mut("font")
-        .unwrap()
-        .extend(["color", "face", "size"]);
-    tag_attributes
-        .get_mut("hr")
-        .unwrap()
-        .extend(["size", "width", "noshade"]);
-    tag_attributes
-        .get_mut("ol")
-        .unwrap()
-        .extend(["start", "type"]);
-    tag_attributes.get_mut("ul").unwrap().insert("type");
-    tag_attributes.get_mut("li").unwrap().insert("value");
-    tag_attributes.get_mut("blockquote").unwrap().insert("cite");
-    tag_attributes.get_mut("q").unwrap().insert("cite");
-    tag_attributes
-        .get_mut("del")
-        .unwrap()
-        .extend(["cite", "datetime"]);
-    tag_attributes
-        .get_mut("ins")
-        .unwrap()
-        .extend(["cite", "datetime"]);
-
-    // URL schemes allowed in href/src
-    let mut url_schemes: HashSet<&'static str> = HashSet::new();
-    url_schemes.extend(["http", "https", "mailto", "cid", "data"]);
-
-    let mut builder = Builder::new();
-    builder
-        .tags(tags)
-        .tag_attributes(tag_attributes)
-        .url_schemes(url_schemes)
-        .link_rel(Some("noopener noreferrer"))
-        .strip_comments(true);
-    builder
-});
-
-/// Sanitize HTML content to remove XSS vectors while preserving email formatting
+/// Sanitize HTML for display in a JS-disabled WebView
+/// Strips comments and script tags while preserving all other content
 pub fn sanitize_html(html: &str) -> String {
-    HTML_SANITIZER.clean(html).to_string()
+    SANITIZE_RE.replace_all(html, "").to_string()
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 pub struct SanitizedMessage {
     pub id: String,
     pub label_ids: Vec<String>,
@@ -215,7 +61,7 @@ impl SanitizedMessage {
             let body = parsed.body_text(0).map(|b| b.to_string());
 
             // Generate webview HTML
-            let webview = parsed_message_to_webview_html(parsed).ok();
+            let webview = extract_html_doc(parsed).ok();
 
             return Ok(Self {
                 id,
@@ -247,26 +93,26 @@ impl SanitizedMessage {
 
 /// Input: Parsed Message
 /// Output: full HTML document safe to drop into a WebView
-pub fn parsed_message_to_webview_html(message: mail_parser::Message) -> anyhow::Result<String> {
-    // Extract preferred body
-    let mut html = message.body_html(0).map(|b| b.to_string());
+pub fn extract_html_doc(message: mail_parser::Message) -> anyhow::Result<String> {
     let text = message.body_text(0).map(|b| b.to_string());
 
-    if html.is_none() {
-        // Escape HTML entities
-        let escaped = text
-            .as_deref()
-            .unwrap_or("")
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;");
-        html = Some(format!("<pre>{}</pre>", escaped));
+    // Extract preferred body
+
+    let mut html_doc = None;
+    for part in &message.parts {
+        println!("DEBUG Part: {}", part);
+        if part.is_text_html() {
+            if let Some(content) = part.text_contents() {
+                // Look for HTML document markers
+                if content.contains("<!DOCTYPE") || content.contains("<html") {
+                    // This is likely the full document
+                    html_doc = Some(part.to_string());
+                }
+            }
+        }
     }
 
-    let mut html = html.unwrap();
-
-    // 4. Collect inline images (Content-ID → data URL)
+    // Collect inline images (Content-ID → data URL)
     let mut cid_map: HashMap<String, String> = HashMap::new();
 
     for part in message.attachments() {
@@ -294,16 +140,18 @@ pub fn parsed_message_to_webview_html(message: mail_parser::Message) -> anyhow::
         }
     }
 
-    // 5. Rewrite cid: URLs in HTML
+    let mut html = html_doc.unwrap_or(text.unwrap_or_default());
+
+    // Rewrite cid: URLs in HTML
     for (cid, data_url) in cid_map {
         html = html.replace(&format!("cid:{}", cid), &data_url);
     }
 
-    // 6. Sanitize HTML to remove XSS vectors (scripts, event handlers, etc.)
+    // Sanitize HTML to remove XSS vectors (scripts, event handlers, etc.)
     let html = sanitize_html(&html);
 
-    // 7. Wrap with WebView-safe shell
-    Ok(wrap_in_webview_shell(&html))
+    // Wrap with WebView-safe shell
+    Ok(html)
 }
 
 /// Decode body.data from Gmail API MessagePartBody
@@ -359,7 +207,8 @@ pub fn gmail_payload_to_webview_html(message: &Message) -> anyhow::Result<String
     let html = sanitize_html(&html);
 
     // Wrap with WebView-safe shell
-    Ok(wrap_in_webview_shell(&html))
+    // Ok(wrap_in_webview_shell(&html))
+    Ok(html)
 }
 
 #[derive(Debug, Clone, Serialize)]

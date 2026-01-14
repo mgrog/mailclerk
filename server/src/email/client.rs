@@ -211,7 +211,8 @@ impl EmailClient {
     /// Maximum 100 requests per batch (Gmail API limit)
     pub async fn get_messages_by_ids(
         &self,
-        message_ids: &[String],
+        message_ids: &[impl AsRef<str>],
+        format: MessageFormat,
     ) -> anyhow::Result<Vec<Message>> {
         if message_ids.is_empty() {
             return Ok(Vec::new());
@@ -229,14 +230,18 @@ impl EmailClient {
                     .await;
             }
 
-            let messages = self.batch_get_messages(chunk).await?;
+            let messages = self.batch_get_messages(chunk, format).await?;
             all_messages.extend(messages);
         }
 
         Ok(all_messages)
     }
 
-    async fn batch_get_messages(&self, message_ids: &[String]) -> anyhow::Result<Vec<Message>> {
+    async fn batch_get_messages(
+        &self,
+        message_ids: &[impl AsRef<str>],
+        format: MessageFormat,
+    ) -> anyhow::Result<Vec<Message>> {
         let boundary = format!("batch_{}", Uuid::new_v4());
 
         // Build multipart body
@@ -246,8 +251,9 @@ impl EmailClient {
             body.push_str("Content-Type: application/http\r\n");
             body.push_str(&format!("Content-ID: <item{}>\r\n\r\n", i));
             body.push_str(&format!(
-                "GET /gmail/v1/users/me/messages/{}?format=RAW\r\n\r\n",
-                message_id
+                "GET /gmail/v1/users/me/messages/{}?format={}\r\n\r\n",
+                message_id.as_ref(),
+                format.as_str().to_uppercase()
             ));
         }
         body.push_str(&format!("--{}--", boundary));
@@ -932,6 +938,31 @@ pub struct ThreadListOptions {
     pub page_token: Option<String>,
     /// Maximum number of threads to return (default: 100)
     pub max_results: Option<u32>,
+}
+
+/// Format parameter for Gmail API message requests
+#[derive(Debug, Clone, Copy, Default)]
+pub enum MessageFormat {
+    /// Returns the full email message data with body content parsed
+    Full,
+    /// Returns only email message IDs and labels
+    Minimal,
+    /// Returns email metadata (headers) without body
+    Metadata,
+    /// Returns the full email message in RFC 2822 format as a base64url encoded string
+    #[default]
+    Raw,
+}
+
+impl MessageFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MessageFormat::Full => "full",
+            MessageFormat::Minimal => "minimal",
+            MessageFormat::Metadata => "metadata",
+            MessageFormat::Raw => "raw",
+        }
+    }
 }
 
 enum EmailClientError {

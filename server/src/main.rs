@@ -29,7 +29,7 @@ use std::{
 };
 
 use auth::session_store::AuthSessionStore;
-use axum::{extract::FromRef, Router};
+use axum::{extract::FromRef, routing::get, Router};
 use db_core::prelude::*;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
@@ -211,7 +211,10 @@ async fn main() -> anyhow::Result<()> {
         })
     }));
 
-    if env::var("SERVER_ONLY").is_ok_and(|v| v == "true") {
+    let scanner_only = env::var("SCANNER_ONLY").is_ok_and(|v| v == "true");
+    let server_only = env::var("SERVER_ONLY").is_ok_and(|v| v == "true");
+
+    if server_only {
         tracing::info!("-------- RUNNING SERVER ONLY --------");
         // Handle Ctrl+C
         join_all([run_server(router, scheduler)]).await;
@@ -225,6 +228,20 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             tracing::error!("Failed to start scheduler: {:?}", e);
         }
+    }
+
+    if scanner_only {
+        tracing::info!("-------- RUNNING SCANNER ONLY --------");
+        let health_router = Router::new().route("/", get(|| async { "OK" }));
+        for join in join_all(vec![
+            run_server(health_router, scheduler),
+            processing_watch_handle,
+        ])
+        .await
+        {
+            join.unwrap();
+        }
+        return Ok(());
     }
 
     for join in join_all(vec![

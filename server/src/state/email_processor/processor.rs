@@ -4,32 +4,36 @@ use std::{
 };
 
 use anyhow::{anyhow, Context};
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use derive_more::Display;
 use entity::{email_training, prelude::*, processed_email};
 use indexmap::IndexSet;
 use num_traits::FromPrimitive;
 use sea_orm::{
-    entity::*, prelude::Decimal, query::*, sea_query::OnConflict, ActiveValue, DatabaseConnection,
-    EntityTrait, FromQueryResult,
+    entity::*, prelude::Decimal, sea_query::OnConflict, ActiveValue, DatabaseConnection,
+    EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
 };
 use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::watch;
 
-use crate::email::{
-    client::{EmailClient, MessageListOptions},
-    rules::UserEmailRules,
-    simplified_message::SimplifiedMessage,
+use crate::{
+    email::{
+        client::{EmailClient, MessageListOptions},
+        rules::UserEmailRules,
+        simplified_message::SimplifiedMessage,
+    },
+    prompt::task_extraction::ExtractedTask,
 };
 use crate::{
     error::{extract_database_error_code, AppError, AppResult, DatabaseErrorCode},
     model::{
-        labels::UtilityLabels, processed_email::ProcessedEmailCtrl, response::LabelUpdate,
+        labels::UtilityLabels, processed_email::ProcessedEmailCtrl,
         user::UserWithAccountAccessAndUsage, user_token_usage::UserTokenUsageStatsCtrl,
     },
     prompt::{
         mistral::{self, CategoryPromptResponse},
         priority_queue::{Priority, PromptPriorityQueue},
+        task_extraction,
     },
     rate_limiters::RateLimiters,
     server_config::cfg,
@@ -44,6 +48,7 @@ lazy_static::lazy_static!(
     static ref UNKNOWN_RULE: EmailRule = EmailRule {
             prompt_content: "Unknown".to_string(),
             mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
+            extract_tasks: true,
         };
 );
 
@@ -168,16 +173,18 @@ impl EmailProcessor {
             id: String,
         }
 
-        let already_processed_ids = processed_email::Entity::find()
+        let query = processed_email::Entity::find()
             .filter(processed_email::Column::UserId.eq(self.user_id))
             .select_only()
             .column(processed_email::Column::Id)
             .into_model::<ProcessedEmailId>()
-            .all(&self.conn)
+            .all(&self.conn);
+
+        let already_processed_ids = query
             .await?
             .into_iter()
             .map(|e| parse_id_to_int(e.id))
-            .collect::<HashSet<_>>();
+            .collect::<HashSet<u128>>();
 
         let mut message_ids_to_process = IndexSet::new();
         let load_page = |next_page_token: Option<String>| async {
@@ -299,7 +306,7 @@ impl EmailProcessor {
             .user_email_rules
             .data()
             .iter()
-            .find(|c| c.prompt_content == ai_answer)
+            .find(|c| c.prompt_content.to_lowercase() == ai_answer.to_lowercase())
             .unwrap_or(&UNKNOWN_RULE);
 
         if let Some(from) = email_message.from.as_ref() {
@@ -372,13 +379,26 @@ impl EmailProcessor {
         Ok(())
     }
 
-    async fn categorize_email_in_client(
+    /// Check if a thread has any unread messages other than the current message
+    async fn check_thread_has_unread_reply(
         &self,
-        email_message: &SimplifiedMessage,
-        email_rule: EmailRule,
-    ) -> anyhow::Result<LabelUpdate> {
-        // Change this to save db instead of in gmail
-        unimplemented!()
+        thread_id: &str,
+        current_message_id: &str,
+    ) -> anyhow::Result<bool> {
+        let thread = self.email_client.get_thread_by_id(thread_id).await?;
+
+        let has_unread_reply = thread.messages.unwrap_or_default().iter().any(|msg| {
+            let msg_id = msg.id.as_deref().unwrap_or_default();
+            let is_different_message = msg_id != current_message_id;
+            let is_unread = msg
+                .label_ids
+                .as_ref()
+                .map(|labels| labels.contains(&"UNREAD".to_string()))
+                .unwrap_or(false);
+            is_different_message && is_unread
+        });
+
+        Ok(has_unread_reply)
     }
 
     async fn record_processed_email(
@@ -386,16 +406,49 @@ impl EmailProcessor {
         email_message: &SimplifiedMessage,
         data: EmailProcessingData,
     ) -> anyhow::Result<()> {
+        let closest_due_data = data
+            .extracted_tasks
+            .iter()
+            .filter_map(|t| {
+                t.due_date
+                    .as_ref()
+                    .and_then(|d| d.parse::<NaiveDateTime>().ok())
+            })
+            .min();
+
+        let extracted_tasks = if data.extracted_tasks.is_empty() {
+            ActiveValue::NotSet
+        } else {
+            let json_tasks: Vec<sea_orm::JsonValue> = data
+                .extracted_tasks
+                .into_iter()
+                .map(|t| serde_json::json!(t))
+                .collect();
+            ActiveValue::Set(Some(json_tasks))
+        };
+
+        // Check if there's an unread reply in the thread
+        let has_new_reply = self
+            .check_thread_has_unread_reply(&email_message.thread_id, &email_message.id)
+            .await
+            .unwrap_or(false);
+
         match ProcessedEmailCtrl::insert(
             &self.conn,
             processed_email::ActiveModel {
                 id: ActiveValue::Set(email_message.id.clone()),
+                thread_id: ActiveValue::Set(email_message.thread_id.clone()),
                 user_id: ActiveValue::Set(self.user_id),
                 category: ActiveValue::Set(data.prompt_return_data.email_rule.mail_label.clone()),
                 ai_answer: ActiveValue::Set(data.prompt_return_data.ai_answer.clone()),
+                ai_confidence: ActiveValue::Set(data.prompt_return_data.ai_confidence.to_string()),
                 processed_at: ActiveValue::NotSet,
-                extracted_task: ActiveValue::NotSet,
+                due_date: ActiveValue::Set(closest_due_data),
+                extracted_tasks,
                 history_id: ActiveValue::Set(Decimal::from(email_message.history_id)),
+                is_read: ActiveValue::Set(!email_message.label_ids.contains(&"UNREAD".to_string())),
+                tasks_done: ActiveValue::Set(false),
+                has_new_reply: ActiveValue::Set(has_new_reply),
             },
         )
         .await
@@ -454,13 +507,35 @@ impl EmailProcessor {
             };
         };
 
-        let token_usage = result.token_usage;
+        let mut token_usage = result.token_usage;
+        let mut extracted_tasks = Vec::new();
+
+        // Extract tasks if the matched rule has extract_tasks enabled
+        if result.email_rule.extract_tasks {
+            self.rate_limiters.acquire_one().await;
+            match task_extraction::extract_tasks_from_email(
+                &self.http_client,
+                &self.rate_limiters,
+                &email_message,
+            )
+            .await
+            {
+                Ok(task_result) => {
+                    token_usage += task_result.token_usage;
+                    extracted_tasks = task_result.tasks;
+                }
+                Err(e) => {
+                    tracing::warn!("Error extracting tasks from email: {:?}", e);
+                }
+            }
+        }
 
         match self
             .record_processed_email(
                 &email_message,
                 EmailProcessingData {
                     prompt_return_data: result,
+                    extracted_tasks,
                 },
             )
             .await
@@ -687,4 +762,5 @@ pub struct PromptReturnData {
 #[derive(Debug)]
 pub struct EmailProcessingData {
     pub prompt_return_data: PromptReturnData,
+    pub extracted_tasks: Vec<ExtractedTask>,
 }

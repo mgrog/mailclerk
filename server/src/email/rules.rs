@@ -11,6 +11,7 @@ lazy_static! {
             .map(|c| EmailRule {
                 prompt_content: c.content.clone(),
                 mail_label: c.mail_label.clone(),
+                extract_tasks: false,
             })
             .collect()
     };
@@ -21,6 +22,7 @@ lazy_static! {
             .map(|h| EmailRule {
                 prompt_content: h.from.clone(),
                 mail_label: h.mail_label.clone(),
+                extract_tasks: false,
             })
             .collect()
     };
@@ -30,6 +32,7 @@ lazy_static! {
 pub struct EmailRule {
     pub prompt_content: String,
     pub mail_label: String,
+    pub extract_tasks: bool,
 }
 
 pub struct UserEmailRules {
@@ -61,6 +64,7 @@ impl UserEmailRules {
             .map(|rule| EmailRule {
                 prompt_content: rule.description,
                 mail_label: rule.mail_label,
+                extract_tasks: rule.extract_tasks,
             })
             .collect();
 

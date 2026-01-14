@@ -1,0 +1,562 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><meta content="text/html; charset=utf-8" http-equiv="Content-Type"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="IE=edge" http-equiv="X-UA-Compatible"/><meta name="x-apple-disable-message-reformatting"/><meta content="light dark" name="color-scheme"/><meta content="light dark" name="supported-color-schemes"/><style type="text/css">
+:root{color-scheme:light dark;supported-color-schemes:light dark}.ExternalClass{width:100%}.ExternalClass,.ExternalClass p,.ExternalClass span,.ExternalClass font,.ExternalClass td,.ExternalClass div{line-height:100%}#MessageViewBody,#MessageWebViewDiv{width:100% !important}body{-webkit-text-size-adjust:none;-ms-text-size-adjust:none}body{margin:0 auto !important;padding:0}table td{border-collapse:collapse}a{text-decoration:none}body,table,td{font-family:SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif !important}.of{overflow:hidden !important;text-overflow:ellipsis !important}.wwn{word-wrap:normal}.ha{height:auto !important}.wa{width:auto !important}.yahoo_ib_cell{display:inline-block}/*!*/.yahoo_ib_cell{display:table-cell !important}.yahoo_ib_block{display:inline-block;padding:0 8px;vertical-align:top}/*!*/.yahoo_ib_block{display:block !important;padding:0}.i_center{background-size:cover;background-position:50%;background-repeat:no-repeat}.o_blk{display:block;position:relative;background-color:rgba(0,0,0,0.03);border-radius:16px;width:100%;height:0}/*!*/.o_blk{opacity:.03;background-color:#000}.o_f_cov{object-fit:cover !important}.d_br16{border-radius:16px !important}.d_brtl16{border-top-left-radius:16px !important}.d_brtr16{border-top-right-radius:16px !important}.d_brbr16{border-bottom-right-radius:16px !important}.d_brbl16{border-bottom-left-radius:16px !important}.d_br24{border-radius:24px !important}.d_wb1{border:1px solid #fff !important}.d_wb2{border:1px solid #e2e2e2 !important}.d_br32{border-radius:32px !important}.pf{font-family:SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif !important;text-decoration:none !important}.op_999{opacity:.999 !important}.op_001{opacity:.001 !important}.f_wb{font-weight:bold !important}.ta_c{text-align:center !important}.va_m{vertical-align:middle !important}.d_of_v{overflow:visible !important}.d_pl0{padding-left:0 !important}.d_pr0{padding-right:0 !important}.d_pb0{padding-bottom:0 !important}.d_pb2{padding-bottom:2px !important}.d_pr8{padding-right:8px !important}.d_pb8{padding-bottom:8px !important}.d_pl8{padding-left:8px !important}.d_pt14_5{padding-top:14.5px !important}.d_pb14_5{padding-bottom:14.5px !important}.d_pt16{padding-top:16px !important}.d_pr16{padding-right:16px !important}.d_pb16{padding-bottom:16px !important}.d_pl16{padding-left:16px !important}.d_pr24{padding-right:24px !important}.d_pb24{padding-bottom:24px !important}.d_pl24{padding-left:24px !important}.d_pr32{padding-right:32px !important}.d_pl32{padding-left:32px !important}.d_pr48{padding-right:48px !important}.d_pl48{padding-left:48px !important}.d_pt100pc{padding-top:100% !important}.d_mh44{max-height:44px !important}.d_fs12{font-size:12px !important}.d_fs14{font-size:14px !important}.d_fs16{font-size:16px !important}.d_fs19{font-size:19px !important}.d_fs20{font-size:20px !important}.d_fs28{font-size:28px !important}.d_fs36{font-size:36px !important}.d_mt16{Margin-top:16px !important}.d_mr16{Margin-right:16px !important}.d_mb16{Margin-bottom:16px !important}.d_ml16{Margin-left:16px !important}.d_mr24{Margin-right:24px !important}.d_mb24{Margin-bottom:24px !important}.d_ml24{Margin-left:24px !important}.d_mt42{Margin-top:42px !important}.d_mt189pc{Margin-top:189%}.d_mt279pc{Margin-top:279%}.d_mt317pc{Margin-top:317%}.d_w100pc{width:100% !important}.d_w16{width:16px !important}.d_w32{width:32px !important}.d_w48{width:48px !important}.d_w64{width:64px !important}.d_w78{width:78px !important}.d_w100{width:100px !important}.d_w117{width:117px !important}.d_w120{width:120px !important}.d_w152{width:152px !important}.d_w157{width:157px !important}.d_w160{width:160px !important}.d_w162{width:162px !important}.d_w173{width:173px !important}.d_w180{width:180px !important}.d_w210{width:210px !important}.d_w236{width:236px !important}.d_w241{width:241px !important}.d_w305{width:305px !important}.d_w306{width:306px !important}.d_w325{width:325px !important}.d_w362{width:362px !important}.d_w370{width:370px !important}.d_w430{width:430px !important}.d_w488{width:488px !important}.d_w520{width:520px !important}.d_w636{width:636px !important}.d_w756{width:756px !important}.d_w772{width:772px !important}.d_max_w236{max-width:236px !important}.d_max_w370{max-width:370px !important}.d_max_w488{max-width:488px !important}.d_max_w520{max-width:520px !important}.d_max_w636{max-width:636px !important}.d_h0{height:0 !important}.d_max_h0{max-height:0 !important}.d_h16{height:16px !important}.d_h24{height:24px !important}.d_h32{height:32px !important}.d_h48{height:48px !important}.d_h64{height:64px !important}.d_h78{height:78px !important}.d_h118{height:118px !important}.d_h120{height:120px !important}.d_h152{height:152px !important}.d_h157{height:157px !important}.d_h162{height:162px !important}.d_h173{height:173px !important}.d_h217{height:217px !important}.d_h241{height:241px !important}.d_h265{height:265px !important}.d_h276{height:276px !important}.d_h290{height:290px !important}.d_h325{height:325px !important}.d_h354{height:354px !important}.d_h537{height:537px !important}.d_h100pc{height:100% !important}.d_lh12{line-height:12px !important}.d_lh16{line-height:16px !important}.d_lh19{line-height:19px !important}.d_lh22{line-height:22px !important}.d_lh23{line-height:23px !important}.d_lh24{line-height:24px !important}.d_lh33{line-height:33px !important}.d_none{display:none !important}.d_block{display:block !important}.d_inline{display:inline !important}.d_inline_block{display:inline-block !important}.d_rel{position:relative !important}.d_3_columns{columns:3 auto !important}.d_3_columns_break{font-size:24px !important}.d_3_column_gap{column-gap:24px !important}.d_l28{left:28px}.d_r32{right:32px}@media(max-width:520px){.m_h16{height:16px !important}.m_h24{height:24px !important}.m_h135{height:135px !important}.m_h145{height:145px !important}.m_h170{height:170px !important}.m_mh34{max-height:34px !important}.m_fs8{font-size:8px !important}.m_fs11{font-size:11px !important}.m_fs12{font-size:12px !important}.m_fs14{font-size:14px !important}.m_fs16{font-size:16px !important}.m_fs20{font-size:20px !important}.m_fs32{font-size:32px !important}.m_lh11{line-height:11px !important}.m_lh16{line-height:16px !important}.m_lh17{line-height:17px !important}.m_lh19{line-height:19px !important}.m_lh20{line-height:20px !important}.m_pb0{padding-bottom:0 !important}.m_pt4{padding-top:4px !important}.m_pr4{padding-right:4px !important}.m_pb4{padding-bottom:4px !important}.m_pl4{padding-left:4px !important}.m_pt8{padding-top:8px !important}.m_pr8{padding-right:8px !important}.m_pb8{padding-bottom:8px !important}.m_pl8{padding-left:8px !important}.m_pt10{padding-top:10px !important}.m_pb10{padding-bottom:10px !important}.m_pt12{padding-top:12px !important}.m_pr12{padding-right:12px !important}.m_pb12{padding-bottom:12px !important}.m_pl12{padding-left:12px !important}.m_pr16{padding-right:16px !important}.m_pb16{padding-bottom:16px !important}.m_pl16{padding-left:16px !important}.m_mt8{Margin-top:8px !important}.m_mr8{Margin-right:8px !important}.m_mb8{Margin-bottom:8px !important}.m_ml8{Margin-left:8px !important}.m_mr12{Margin-right:12px !important}.m_ml12{Margin-left:12px !important}.m_mb16{Margin-bottom:16px !important}.m_mt4{Margin-top:4px !important}.m_mr4{Margin-right:4px !important}.m_mb4{Margin-bottom:4px !important}.m_ml4{Margin-left:4px !important}.m_w12{width:12px !important}.m_w20{width:20px !important}.m_w24{width:24px !important}.m_w84{width:84px !important}.m_w120{width:120px !important}.m_w136{width:136px !important}.m_w236{width:236px !important}.m_w100pc{width:100% !important}.m_max_w96{max-width:96px !important}.m_max_w128{max-width:128px !important}.m_none{display:none !important}.m_block{display:block !important}.m_inline{display:inline !important}.m_inline_block{display:inline-block !important}.m_2_columns{columns:2 auto !important}.m_2_columns_gap{column-gap:8px !important}.m_g_2_columns_gap{column-gap:4px !important}.m_2_columns_break{font-size:16px !important}.m_l8{left:8px}.m_r16{right:16px}}@media(max-width:359px){.m_s_w49{width:49px !important}.m_s_w73{width:73px !important}.m_s_w96{width:96px !important}.m_s_w99{width:99px !important}.m_s_w100{width:100px !important}.m_s_w101{width:101px !important}.m_s_w147{width:147px !important}.m_s_w148{width:148px !important}.m_s_w149{width:149px !important}.m_s_w203{width:203px !important}.m_s_w298{width:298px !important}.m_s_w299{width:299px !important}.m_s_w300{width:300px !important}.m_s_w302{width:302px !important}.m_s_w305{width:305px !important}.m_s_w312{width:312px !important}.m_s_w314{width:314px !important}.m_s_w318{width:318px !important}.m_s_w320{width:320px !important}.m_s_w322{width:322px !important}.m_s_h49{height:49px !important}.m_s_h74{height:74px !important}.m_s_h98{height:98px !important}.m_s_h99{height:99px !important}.m_s_h134{height:134px !important}.m_s_h144{height:144px !important}.m_s_h148{height:148px !important}.m_s_h203{height:203px !important}.m_s_h222{height:222px !important}.m_s_h390{height:390px !important}.m_s_lh73{line-height:73px !important}.m_s_fs11{font-size:11px !important}.m_s_mt98pc{Margin-top:98%}.m_s_mt153pc{Margin-top:153%}}@media(min-width:360px) and (max-width:374px){.m_m_w55{width:55px !important}.m_m_w83{width:83px !important}.m_m_w109{width:109px !important}.m_m_w111{width:111px !important}.m_m_w114{width:114px !important}.m_m_w167{width:167px !important}.m_m_w168{width:168px !important}.m_m_w229{width:229px !important}.m_m_w327{width:327px !important}.m_m_w342{width:342px !important}.m_m_w344{width:344px !important}.m_m_w352{width:352px !important}.m_m_w355{width:355px !important}.m_m_w358{width:358px !important}.m_m_w360{width:360px !important}.m_m_h55{height:55px !important}.m_m_h84{height:84px !important}.m_m_h111{height:111px !important}.m_m_h113{height:113px !important}.m_m_h153{height:153px !important}.m_m_h163{height:163px !important}.m_m_h167{height:167px !important}.m_m_h168{height:168px !important}.m_m_h227{height:227px !important}.m_m_h229{height:229px !important}.m_m_h252{height:252px !important}.m_m_h350{height:350px !important}.m_m_h440{height:440px !important}.m_m_lh84{line-height:84px !important}.m_m_fs11{font-size:11px !important}.m_m_mt120pc{Margin-top:120%}.m_m_mt182pc{Margin-top:182%}}@media(min-width:375px) and (max-width:520px){.m_l_w58{width:58px !important}.m_l_w87{width:87px !important}.m_l_w114{width:114px !important}.m_l_w117{width:117px !important}.m_l_w118{width:118px !important}.m_l_w119{width:119px !important}.m_l_w176{width:176px !important}.m_l_w239{width:239px !important}.m_l_w270{width:270px !important}.m_l_w342{width:342px !important}.m_l_w355{width:355px !important}.m_l_w359{width:359px !important}.m_l_w360{width:360px !important}.m_l_w368{width:368px !important}.m_l_w376{width:376px !important}.m_l_w380{width:380px !important}.m_l_h58{height:58px !important}.m_l_h88{height:88px !important}.m_l_h117{height:117px !important}.m_l_h119{height:119px !important}.m_l_h160{height:160px !important}.m_l_h171{height:171px !important}.m_l_h176{height:176px !important}.m_l_h239{height:239px !important}.m_l_h264{height:264px !important}.m_l_h444{height:444px !important}.m_l_lh88{line-height:88px !important}.m_l_fs12{font-size:12px !important}.m_l_mt129pc{Margin-top:129%}.m_l_mt192pc{Margin-top:192%}}@media(min-width:521px) and (max-width:772px){.d_s_none{display:none !important}.d_s_inline_block{display:inline-block !important}.d_s_w78{width:78px !important}.d_s_w94{width:94px !important}.d_s_w96{width:96px !important}.d_s_w100{width:100px !important}.d_s_w117{width:117px !important}.d_s_w152{width:152px !important}.d_s_w157{width:157px !important}.d_s_w210{width:210px !important}.d_s_w236{width:236px !important}.d_s_w244{width:244px !important}.d_s_w305{width:305px !important}.d_s_w488{width:488px !important}.d_s_w520{width:520px !important}.d_s_h78{height:78px !important}.d_s_h152{height:152px !important}.d_s_h157{height:157px !important}.d_s_h228{height:228px !important}.d_s_pl16{padding-left:16px !important}.d_s_pr16{padding-right:16px !important}.d_s_mt189pc{Margin-top:189%}.d_s_none{display:none !important}.d_s_inline{display:inline !important}.d_s_fs14{font-size:14px !important}.d_s_fs16{font-size:16px !important}.d_s_lh20{line-height:20px !important}.d_s_pr4{padding-right:4px !important}.d_s_pl4{padding-left:4px !important}.d_s_pt8{padding-top:8px !important}.d_s_pr8{padding-right:8px !important}.d_s_pb8{padding-bottom:8px !important}.d_s_pl8{padding-left:8px !important}.d_s_mt8{Margin-Top:8px !important}.d_s_mb8{Margin-Bottom:8px !important}}@media(min-width:773px){.d_l_w520{width:520px !important}.d_l_w772{width:772px !important}.d_l_none{display:none !important}.d_l_pl16{padding-left:16px !important}.d_l_pr16{padding-right:16px !important}}.c_g0{color:#fff !important}.c_g50{color:#fff !important}.c_g100{color:#efefef !important}.c_g118{color:#767676 !important}.c_g200{color:#8e8e8e !important}.c_g250{color:#767676 !important}.c_g300{color:#111 !important}.c_g400{color:#000 !important}.c_h002966{color:#002966 !important}.c_h9B0000{color:#9b0000 !important}.c_hA30C4A{color:#a30c4a !important}.c_h004BA9{color:#004ba9 !important}.c_h0074e8{color:#0074e8 !important}.bgc_g0{background-color:#fff !important}.bgc_g50{background-color:#fff !important}.bgc_g100{background-color:#efefef !important}.bgc_g133{background-color:#e9e9e9 !important}.bgc_g200{background-color:#8e8e8e !important}.bgc_g300{background-color:#111 !important}.bgc_g400{background-color:#000 !important}@media(prefers-color-scheme:dark){.dm_d_none{display:none !important}.dm_d_block{display:block !important}.dm_d_inline_block{display:inline-block !important}.dm_dbg{background-color:#030303 !important}.dm_df{color:#efefef !important}.dm_dbg_g100{background-color:#404040 !important}.dm_b_g100{border:1px solid #404040 !important}.dm_br_000{border-right:1px solid #030303 !important}.dm_b_000{border:1px solid #030303 !important}.dm_c_g0{color:#030303 !important}.dm_c_g50{color:#212121 !important}.dm_c_g100{color:#404040 !important}.dm_c_g200{color:#ababab !important}.dm_c_g205{color:#cdcdcd !important}.dm_c_g250{color:#8e8e8e !important}.dm_c_g300{color:#efefef !important}.dm_c_g400{color:#fff !important}.dm_c_inverse_base{color:#111 !important}.dm_c_h75BFFF{color:#75bfff !important}.dm_bgc_g0{background-color:#030303 !important}.dm_bgc_g50{background-color:#212121 !important}.dm_bgc_g60{background-color:#2b2b2b !important}.dm_bgc_g100{background-color:#404040 !important}.dm_bgc_g118{background-color:#767676 !important}.dm_bgc_g200{background-color:#ababab !important}.dm_bgc_g300{background-color:#efefef !important}.dm_bgc_g400{background-color:#fff !important}.dm_bgc_h0074e8{background-color:#75bfff !important}.dm_bgc_amb{background-color:#f0f0eb !important}.dm_bgc_471d51{background-color:#471d51 !important}}
+</style><!--[if gte mso 9]>
+<xml>
+<o:OfficeDocumentSettings>
+<o:AllowPNG/>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</head> <body>
+<div style="color:transparent;visibility:hidden;opacity:0;font-size:0px;border:0;max-height:1px;width:1px;margin:0px;padding:0px;border-width:0px!important;display:none!important;line-height:0px!important;"><img border="0" width="1" height="1" src="https://post.pinterest.com/q/23PHPegR7NbU6Vt0cd3ktA~~/AAAAARA~/jxf7vZwOY770iuGnyTPCDM1BFWgNEqWJ9DfMXooD4BG94ByQo6Sx6SzT7J2ctzL05sQ7mdPT7q_jB3LZfs7afg~~" alt=""/></div>
+<div style="color:transparent;visibility:hidden;opacity:0;font-size:0px;border:0;max-height:1px;width:1px;margin:0px;padding:0px;border-width:0px!important;display:none!important;line-height:0px!important;"><img border="0" height="1" src="https://www.pinterest.com/email/open/?pd=dGlkPTc5ODAwZTAzOGJkZjQwNTg4OWRmZGI4ZDU1ZjIzYWJhJmNpZD1IT01FRkVFRF9ESUdFU1RfUElOUyZ0b19hZGRyPW1wZ3Jvc3BhbWFjYyU0MGdtYWlsLmNvbSZwb3M9dG9wX3BpeGVsJnR5cGU9aHRtbCZzaWQ9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmc25pZD0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NCZ1aWQ9OTI2MTkzNjE3MDI1MDI2NDM5" width="1"/></div> <div style="
+color:#ffffff;display:none;font-size:1px;line-height:1px;max-height:0px;max-width:0px;
+opacity:0;overflow:hidden;mso-hide:all"> Funny Quotes, Fishing Quotes Funny 5 Ring Wearing Rules Infographic Mind blowing Psychology facts about human behavior | interesting psychology facts MEN'S BOOTS FORMALITY VISUALIZED Things Every Man Should Own That Are Real Epic </div> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div class="d_block m_none" style="height:16px;font-size:16px;line-height:16px;display:none"> </div> <!--[if !mso]><!--> <div class="d_none m_block" style="height:8px;font-size:8px;line-height:8px"> </div> <!--<![endif]--> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td align="center"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg d_w636 m_l_w368 m_m_w352 m_s_w312" style="border-collapse:collapse; width: 636px;"> <tr height="52"> <td align="center" display="block" height="52" style="vertical-align:middle;"> <!--[if mso]>
+<table class="dm_dbg" width="636" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr>
+<td >
+<![endif]--> <div class="dm_dbg"> <table border="0" cellpadding="0" cellspacing="0" class="d_pr8 d_pl8 m_pr4 m_pl4 dm_dbg" style="padding: 0 8px;" width="100%"> <tr> <td> <div> <a class="d_w24 d_h24" href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526e_t_s%253Dheader_pinterest%2526utm_source%253D31%2526utm_medium%253D2004" title="Visit Pinterest"> <img border="0" class="d_w24 d_h24" height="24" src="https://i.pinimg.com/email/shared/email/logo_circle_full_100.png" style="
+display:block;
+height:24px;
+width:24px;
+outline:none;
+border:0;
+-ms-interpolation-mode:bicubic" width="24"/> </a> </div> </td> <td align="right"> <table style="border-spacing: 0;"> <tr> <td> <table dir="ltr" style="border-spacing: 0;"> <tr> <td style="padding: 0;"> <div> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fsearch%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526e_t_s%253Dsearch_icon%2526utm_source%253D31%2526utm_medium%253D2004" title="Visit Pinterest"> <img border="0" class="d_w24 d_h24" height="24" src="https://i.pinimg.com/notifications/shared/email/search_refresh.png" style="
+display:block;
+outline:none;
+border:0;
+-ms-interpolation-mode:bicubic" width="24"/> </a> </div> </td> </tr> </table> </td> </tr> </table> </td> </tr> </table> </div> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </td> </tr> </table> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div style="height:8px;font-size:8px;line-height:8px"> </div> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td align="center"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg d_pr8 d_pl8 m_pr4 m_pl4" style="padding: 0 4px;border-collapse:collapse"> <tr align="center"> <!--[if !mso]><!--> <td class="d_pr8 d_pl8 m_pr4 m_pl4 m_2_columns_gap" style="columns: 2 auto;column-gap: 10px;padding: 0 8px" valign="top"> <!--<![endif]--> <!--[if mso]>
+<td valign="top" class="d_pr8 d_pl8 m_pr4 m_pl4" style="padding: 0 8px">
+<!--<![endif]--> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F2674081025724904%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D2674081025724904%2526utm_term%253D1%2526news_hub_id%253D3150198044256844609" title="Funny Quotes, Fishing Quotes Funny"> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="539" src="https://i.pinimg.com/474x/5e/5c/19/5e5c19bd94ad30bd798b74e3f3cc9e26.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:539px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#2c2d4c" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F2674081025724904%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D2674081025724904%26utm_term%3D1%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:539px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/5e/5c/19/5e5c19bd94ad30bd798b74e3f3cc9e26.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F2674081025724904%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D2674081025724904%2526utm_term%253D1%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="Funny Quotes, Fishing Quotes Funny"> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">Funny Quotes, Fis...</span> <span class="d_inline d_s_inline m_none" style="display:none">Funny Quotes, Fishing Quotes Funny</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F1109715164501526240%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D1109715164501526240%2526utm_term%253D3%2526news_hub_id%253D3150198044256844609" title="Mind blowing Psychology facts about human behavior | inte..."> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="170" src="https://i.pinimg.com/474x/db/8e/02/db8e02a75e4c1928e0c73cefec9687b4.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:170px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#0a7ece" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F1109715164501526240%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D1109715164501526240%26utm_term%3D3%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:170px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/db/8e/02/db8e02a75e4c1928e0c73cefec9687b4.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F1109715164501526240%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D1109715164501526240%2526utm_term%253D3%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="Mind blowing Psychology facts about human behavior | inte..."> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">Mind blowing Psyc...</span> <span class="d_inline d_s_inline m_none" style="display:none">Mind blowing Psychology facts about human behavior | inte...</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F2322237302056533%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D2322237302056533%2526utm_term%253D5%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="405" src="https://i.pinimg.com/474x/68/bc/67/68bc678a0ed4bba38a6b9e6be291bbd6.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:405px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#6f6a63" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F2322237302056533%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D2322237302056533%26utm_term%3D5%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:405px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/68/bc/67/68bc678a0ed4bba38a6b9e6be291bbd6.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F774124931167243%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D774124931167243%2526utm_term%253D7%2526news_hub_id%253D3150198044256844609" title="MEN'S BOOTS FORMALITY VISUALIZED"> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="381" src="https://i.pinimg.com/474x/75/7e/a6/757ea69e68e3c5ce959575c5cd9f76e7.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:381px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#d9d5c9" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F774124931167243%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D774124931167243%26utm_term%3D7%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:381px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/75/7e/a6/757ea69e68e3c5ce959575c5cd9f76e7.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F774124931167243%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D774124931167243%2526utm_term%253D7%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="MEN'S BOOTS FORMALITY VISUALIZED"> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">MEN'S BOOTS FORMA...</span> <span class="d_inline d_s_inline m_none" style="display:none">MEN'S BOOTS FORMALITY VISUALIZED</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F14566398791595472%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D14566398791595472%2526utm_term%253D9%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="301" src="https://i.pinimg.com/474x/a9/c5/c4/a9c5c463687af6d5ded261b1599bb142.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:301px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#666542" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F14566398791595472%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D14566398791595472%26utm_term%3D9%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:301px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/a9/c5/c4/a9c5c463687af6d5ded261b1599bb142.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F1089589703614533362%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D1089589703614533362%2526utm_term%253D11%2526news_hub_id%253D3150198044256844609" title="Things Every Man Should Own That Are Real Epic"> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="610" src="https://i.pinimg.com/474x/8d/fa/79/8dfa799d1c183063b4c93bc27e5acf1a.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:610px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#281f1b" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F1089589703614533362%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D1089589703614533362%26utm_term%3D11%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:610px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/8d/fa/79/8dfa799d1c183063b4c93bc27e5acf1a.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F1089589703614533362%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D1089589703614533362%2526utm_term%253D11%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="Things Every Man Should Own That Are Real Epic"> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">Things Every Man ...</span> <span class="d_inline d_s_inline m_none" style="display:none">Things Every Man Should Own That Are Real Epic</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F139611657202729906%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D139611657202729906%2526utm_term%253D13%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="305" src="https://i.pinimg.com/474x/30/06/4d/30064d5489335da0bf3ace22a3f54183.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:305px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#13151a" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F139611657202729906%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D139611657202729906%26utm_term%3D13%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:305px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/30/06/4d/30064d5489335da0bf3ace22a3f54183.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F2111131073114360%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D2111131073114360%2526utm_term%253D15%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="457" src="https://i.pinimg.com/474x/fa/15/0a/fa150a677894d12d9cd29b9dd5235b8d.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:457px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#12100f" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F2111131073114360%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D2111131073114360%26utm_term%3D15%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:457px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/fa/15/0a/fa150a677894d12d9cd29b9dd5235b8d.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <!--[if mso]>
+</td>
+<!--<![endif]--> <!--[if mso]>
+<td valign="top" class="d_pr8 d_pl8 m_pr4 m_pl4" style="padding: 0 8px">
+<!--<![endif]--> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F114701121754590636%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D114701121754590636%2526utm_term%253D2%2526news_hub_id%253D3150198044256844609" title="5 Ring Wearing Rules Infographic"> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="457" src="https://i.pinimg.com/474x/80/eb/31/80eb311364c58ccc0cc35b63ff3a22ee.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:457px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#faf8f7" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F114701121754590636%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D114701121754590636%26utm_term%3D2%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:457px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/80/eb/31/80eb311364c58ccc0cc35b63ff3a22ee.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F114701121754590636%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D114701121754590636%2526utm_term%253D2%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="5 Ring Wearing Rules Infographic"> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">5 Ring Wearing Ru...</span> <span class="d_inline d_s_inline m_none" style="display:none">5 Ring Wearing Rules Infographic</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F114701121756674073%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D114701121756674073%2526utm_term%253D4%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="305" src="https://i.pinimg.com/474x/ee/a6/d3/eea6d32b90188bb67e9d97fdee90f509.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:305px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#e6e1db" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F114701121756674073%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D114701121756674073%26utm_term%3D4%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:305px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/ee/a6/d3/eea6d32b90188bb67e9d97fdee90f509.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F228205906114497867%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D228205906114497867%2526utm_term%253D6%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="457" src="https://i.pinimg.com/474x/9d/f7/1d/9df71d74a70bed8ddefd326f45752779.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:457px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#ac9474" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F228205906114497867%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D228205906114497867%26utm_term%3D6%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:457px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/9d/f7/1d/9df71d74a70bed8ddefd326f45752779.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F24418022975933598%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D24418022975933598%2526utm_term%253D8%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="405" src="https://i.pinimg.com/474x/ae/97/22/ae9722147ecb317d956974cd5f7640e2.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:405px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#6f737f" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F24418022975933598%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D24418022975933598%26utm_term%3D8%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:405px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/ae/97/22/ae9722147ecb317d956974cd5f7640e2.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F1548181176403715%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D1548181176403715%2526utm_term%253D10%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="460" src="https://i.pinimg.com/474x/f7/f4/9a/f7f49ab2e0a151c6238de45a9e070240.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:460px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#74774e" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F1548181176403715%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D1548181176403715%26utm_term%3D10%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:460px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/f7/f4/9a/f7f49ab2e0a151c6238de45a9e070240.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F19632948394759118%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D19632948394759118%2526utm_term%253D12%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="503" src="https://i.pinimg.com/474x/c8/c1/e3/c8c1e31532e78e10487a0512fb189eaf.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:503px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#8a7e7a" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F19632948394759118%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D19632948394759118%26utm_term%3D12%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:503px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/c8/c1/e3/c8c1e31532e78e10487a0512fb189eaf.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F772226667393864834%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D772226667393864834%2526utm_term%253D14%2526news_hub_id%253D3150198044256844609" title="Here’s Why Taraji P. Henson Should Host Every Single Event Ever"> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="414" src="https://i.pinimg.com/474x/bb/ee/b6/bbeeb66645c6bda2ba6e5a911f5463ff.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:414px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#1a1e1a" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F772226667393864834%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D772226667393864834%26utm_term%3D14%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:414px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/bb/ee/b6/bbeeb66645c6bda2ba6e5a911f5463ff.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <tr> <td> <div class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148"> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F772226667393864834%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D772226667393864834%2526utm_term%253D14%2526news_hub_id%253D3150198044256844609" style="text-decoration:none" title="Here’s Why Taraji P. Henson Should Host Every Single Event Ever"> <div class="pf m_mt4 m_mr4 m_ml4" style="color:#111111;Margin:8px 8px 0 8px; font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;"> <div class="dm_df of wwn" style="font-size:12px;line-height:14px;font-weight: bold;"> <span class="d_none d_s_none m_inline">Here’s Why Taraji...</span> <span class="d_inline d_s_inline m_none" style="display:none">Here’s Why Taraji P. Henson Should Host Every Single Event Ever</span> </div> </div> </a> </div> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <div class="yahoo_ib_block" style="break-inside:avoid;"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" style="font-size:0;border-collapse:collapse;font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;" width="305"> <!--[if mso]>
+<table width="305" align="center" border="0"
+cellpadding="0" cellspacing="0" style="table-layout:fixed">
+<tr align="center">
+<td align="center">
+<![endif]--> <tr> <td> <a href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252Fpin%252F908108712378617001%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526utm_source%253D31%2526utm_medium%253D2004%2526utm_content%253D908108712378617001%2526utm_term%253D16%2526news_hub_id%253D3150198044256844609" title=""> <!--[if !mso]><!--> <div style="background-color:#111111;border-radius:16px;"> <img border="0" class="ha d_w305 d_s_w305 m_l_w176 m_m_w168 m_s_w148" height="305" src="https://i.pinimg.com/474x/0d/e0/03/0de00336f53a9a9d0258f189c2858e56.jpg" style="display:block;
+opacity: 0.97;
+width:305px;
+height:305px;
+border-radius:16px;
+-ms-interpolation-mode:bicubic;
+text-decoration:none;
+outline:none;
+border:0;
+background-color:#b2aba1" width="305"/> </div> <!--<![endif]--> <!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://www.pinterest.com/secure/autologin/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&amp;od=GQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%2F33lNwZHqZ%2B5MkhzEW8GPhAmYMbZzqfl827dY4S%2B4Njl%2BBygh%2FX8m%2FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%3D%3D&amp;next=%2Fpin%2F908108712378617001%2F%3Futm_campaign%3Dhfdigestpins%26e_t%3D79800e038bdf405889dfdb8d55f23aba%26utm_source%3D31%26utm_medium%3D2004%26utm_content%3D908108712378617001%26utm_term%3D16%26news_hub_id%3D3150198044256844609"
+arcsize="8%" fill="true" stroke="false" style="
+width:305px;
+height:305px;
+border:0;">
+<v:fill type="frame" aspect="atleast" src="https://i.pinimg.com/474x/0d/e0/03/0de00336f53a9a9d0258f189c2858e56.jpg" />
+</v:roundrect>
+<![endif]--> </a> </td> </tr> <!--[if mso]>
+</td>
+</tr>
+</table>
+<![endif]--> </table> <br class="m_2_columns_break" style="font-size: 24px;"/> </div> <!--[if mso]>
+</td>
+<!--<![endif]--> <!--[if !mso]><!--> </td> <!--<![endif]--> </tr> </table> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div class="d_block m_none" style="height:32px;font-size:32px;line-height:32px;display:none"> </div> <!--[if !mso]><!--> <div class="d_none m_block" style="height:24px;font-size:24px;line-height:24px"> </div> <!--<![endif]--> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td align="center"> <div class="d_w488 d_max_w488 m_l_w359 m_m_w344 m_s_w305"> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="float: none;"> <tr> <td align="center" bgcolor="#e60023" class="" style="border-radius: 24px" valign="top"> <a align="center" class="pf dm_df d_pt14_5 d_pb14_5 d_pr16 d_pl16" href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526e_t_s%253Dcta%2526utm_source%253D31%2526utm_medium%253D2004" style="font-family: SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;
+border: 1px solid #e60023;
+border-radius: 24px;
+padding: 14.5px 16px;
+display: inline-block;
+font-size: 16px;
+font-weight: bold;
+line-height: 17px;
+color: #ffffff;
+text-decoration: none;
+box-sizing: border-box;
+width: auto;"> See more </a> </td> </tr> </table> </div> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div style="height:16px;font-size:16px;line-height:16px"> </div> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse;" width="100%"> <tr> <td> <!--[if mso]>
+<table
+align="center" border="0" cellpadding="0" cellspacing="0"
+class="d_br16 d_w520 d_max_w520 m_l_w380 m_m_w344 m_s_w305"
+style="
+border-collapse:collapse;
+max-width:520px;">
+<![endif]--> <!--[if !mso]><!--> <table align="center" border="0" cellpadding="0" cellspacing="0" class="d_br24 d_w520 d_max_w520 m_l_w380 m_m_w344 m_s_w305" style="
+border-collapse:collapse;
+border-radius:24px;
+max-width:520px;"> <!--<![endif]--> <tr> <td height="16"></td> </tr> <tr> <td align="center"> <span class="c_g300 dm_c_g300 m_pl8 m_pr8 d_pl0 d_pr0 d_block d_fs20 d_lh23 pf" style="font-weight:700; color:black;"> Was this email useful? </span> </td> </tr> <tr> <td height="8"></td> </tr> <tr> <td align="center"> <table cellpadding="0" cellspacing="0"> <tr> <td> <span style="display:inline-block;"> <!-- CTA button that supports Images or Text with more flexible settings and MSO support --> <table border="0" cellpadding="0" cellspacing="0"> <tr> <td align="center"> <a class="c_g300 dm_c_g400" href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526e_t_s%253Dsurvey_4_1%2526utm_source%253D31%2526utm_medium%253D2004" style="
+color:#111111;
+font-family:-apple-system, BlinkMacSystemFont, sans-serif;
+font-size:16px;
+font-weight:600;
+line-height:18px;
+text-decoration:none;" title=""> <!--[if mso]>
+<table
+width=60 cellpadding="12" cellspacing="0"
+bgcolor="#e9e9e9"
+style="
+background-color:#e9e9e9;
+color:#111111;">
+<tr>
+<td align="center" width="60"
+bgcolor="#e9e9e9"
+style="
+background-color:#e9e9e9;
+color:#111111;">
+<strong>Yes</strong>
+</td>
+</tr>
+</table>
+<![endif]--> <!--[if !mso]><!--> <div class="bgc_g133 dm_bgc_g118" style="
+background-color:#e9e9e9;
+border-radius:24px;
+box-sizing:border-box;
+padding:14px 0;
+text-align:center;
+width:60px;
+height:48px;"> Yes </div> <!--<![endif]--> </a> </td> </tr> </table> </span> </td> <td style="width:8px"></td> <td> <span style="display:inline-block;"> <!-- CTA button that supports Images or Text with more flexible settings and MSO support --> <table border="0" cellpadding="0" cellspacing="0"> <tr> <td align="center"> <a class="c_g300 dm_c_g400" href="https://www.pinterest.com/email/click/?user_id=OTI2MTkzNjE3MDI1MDI2NDM5&od=dD03OTgwMGUwMzhiZGY0MDU4ODlkZmRiOGQ1NWYyM2FiYSZjPUhPTUVGRUVEX0RJR0VTVF9QSU5TJnM9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmbj0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NA%3D%3D&target=https%3A%2F%2Fwww.pinterest.com%2Fsecure%2Fautologin%2F%3Fuser_id%3DOTI2MTkzNjE3MDI1MDI2NDM5%26od%3DGQr87RCVouTZsXmTCMp5TZvWGq5Uw46UqO6maNwAUyQcPTdYISUYaQ%252F33lNwZHqZ%252B5MkhzEW8GPhAmYMbZzqfl827dY4S%252B4Njl%252BBygh%252FX8m%252FYBdtchJH0Ov7CvGK6kipdj0zzzzITMLpqMuxLTvz3w%253D%253D%26next%3D%252F%253Futm_campaign%253Dhfdigestpins%2526e_t%253D79800e038bdf405889dfdb8d55f23aba%2526e_t_s%253Dsurvey_4_0%2526utm_source%253D31%2526utm_medium%253D2004" style="
+color:#111111;
+font-family:-apple-system, BlinkMacSystemFont, sans-serif;
+font-size:16px;
+font-weight:600;
+line-height:18px;
+text-decoration:none;" title=""> <!--[if mso]>
+<table
+width=60 cellpadding="12" cellspacing="0"
+bgcolor="#e9e9e9"
+style="
+background-color:#e9e9e9;
+color:#111111;">
+<tr>
+<td align="center" width="60"
+bgcolor="#e9e9e9"
+style="
+background-color:#e9e9e9;
+color:#111111;">
+<strong>No</strong>
+</td>
+</tr>
+</table>
+<![endif]--> <!--[if !mso]><!--> <div class="bgc_g133 dm_bgc_g118" style="
+background-color:#e9e9e9;
+border-radius:24px;
+box-sizing:border-box;
+padding:14px 0;
+text-align:center;
+width:60px;
+height:48px;"> No </div> <!--<![endif]--> </a> </td> </tr> </table> </span> </td> </tr> </table> </td> </tr> </table> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div class="d_block m_none" style="height:32px;font-size:32px;line-height:32px;display:none"> </div> <!--[if !mso]><!--> <div class="d_none m_block" style="height:16px;font-size:16px;line-height:16px"> </div> <!--<![endif]--> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td align="center" class="dm_dbg m_pl8 m_pr8 d_s_pl16 d_s_pr16 d_l_pl16 d_l_pr16"> <!--[if mso]>
+<table
+width="488"
+align="center"
+border="0" cellpadding="0"
+cellspacing="0"
+style="table-layout:fixed">
+<tr>
+<td align="center" >
+<![endif]--> <div class="d_w488 d_max_w488 m_l_w359 m_m_w344 m_s_w299 d_lh12" style="text-align:center;"> <span class="d_fs12 d_lh12 c_g300 dm_dbg dm_c_g300 d_pl0 d_pr0" style="
+display:inline-block;
+font-size: 12px;
+line-height: 12px;
+padding: 0 8px;
+font-family:SF Pro Text,Roboto,Segoe UI,helvetica neue,helvetica,arial,sans-serif;
+color:#111111;
+text-align:center;
+text-decoration:none"> Based on your activity </span> </div> <!--[if mso]>
+</td>
+</tr>
+</table>
+ </span> </div> </div> </td> </tr> </table> <table align="center" border="0" cellpadding="0" cellspacing="0" class="dm_dbg" style="border-collapse:collapse" width="100%"> <tr> <td> <div class="d_block m_none" style="height:32px;font-size:32px;line-height:32px;display:none"> </div> <!--[if !mso]><!--> <div class="d_none m_block" style="height:16px;font-size:16px;line-height:16px"> </div> <!--<![endif]--> </td> </tr> </table> <img height="0" src="https://www.pinterest.com/email/tracking.gif?e_t=79800e038bdf405889dfdb8d55f23aba" width="0"/> <img alt="" border="0" height="1" src="https://www.pinterest.com/email/open/?pd=dGlkPTc5ODAwZTAzOGJkZjQwNTg4OWRmZGI4ZDU1ZjIzYWJhJmNpZD1IT01FRkVFRF9ESUdFU1RfUElOUyZ0b19hZGRyPW1wZ3Jvc3BhbWFjYyU0MGdtYWlsLmNvbSZwb3M9Ym90dG9tX3BpeGVsJnR5cGU9aHRtbCZzaWQ9Nzk4MDBlMDM4YmRmNDA1ODg5ZGZkYjhkNTVmMjNhYmEmc25pZD0wZTNmNTA4YjhiMDA0NGZmYmNhMzRkYTdhMjAxMGU4NCZ1aWQ9OTI2MTkzNjE3MDI1MDI2NDM5" width="1"/>
+<img border="0" width="1" height="1" alt="" src="https://post.pinterest.com/q/No5UBQTTC0e1ZM9QnsPvtg~~/AAAAARA~/3JoybWNXaXmw7r1jxIGWssLezQFRCcvl4nK-qhgaHMqNDIxpwgA0mn97bXHCyRR2Zee7anO-jhurazTLSbUq2g~~">
+</body> </html>

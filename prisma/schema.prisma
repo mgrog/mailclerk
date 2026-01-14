@@ -25,14 +25,20 @@ model processed_daily_summary {
 }
 
 model processed_email {
-  id             String   @id @db.VarChar
-  user_id        Int
-  processed_at   DateTime @default(now()) @db.Timestamptz(6)
-  category       String   @db.VarChar
-  extracted_task String?  @db.Text
-  ai_answer      String   @db.VarChar
-  history_id     Decimal  @db.Decimal(20, 0)
-  user           user     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id              String    @id @db.VarChar
+  thread_id       String    @db.VarChar()
+  user_id         Int
+  processed_at    DateTime  @default(now()) @db.Timestamptz(6)
+  category        String    @db.VarChar
+  extracted_tasks Json[]
+  ai_answer       String    @db.VarChar
+  ai_confidence   String    @db.VarChar
+  history_id      Decimal   @db.Decimal(20, 0)
+  due_date        DateTime?
+  is_read         Boolean   @default(false)
+  tasks_done      Boolean   @default(false)
+  has_new_reply   Boolean
+  user            user      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([user_id])
   @@index([user_id, category])
@@ -114,14 +120,16 @@ model auto_cleanup_setting {
 }
 
 model user_email_rule {
-  id           Int      @id @default(autoincrement())
-  user_id      Int
-  description  String
-  semantic_key String
-  name         String   @db.VarChar
-  mail_label   String   @db.VarChar
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  description   String
+  semantic_key  String
+  name          String   @db.VarChar
+  mail_label    String   @db.VarChar
+  extract_tasks Boolean  @default(false)
+  priority      Int
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
 
   user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 

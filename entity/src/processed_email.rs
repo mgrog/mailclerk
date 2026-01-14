@@ -11,10 +11,15 @@ pub struct Model {
     pub processed_at: DateTimeWithTimeZone,
     pub ai_answer: String,
     pub category: String,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub extracted_task: Option<String>,
     #[sea_orm(column_type = "Decimal(Some((20, 0)))")]
     pub history_id: Decimal,
+    pub extracted_tasks: Option<Vec<Json>>,
+    pub is_read: bool,
+    pub due_date: Option<DateTime>,
+    pub tasks_done: bool,
+    pub has_new_reply: bool,
+    pub ai_confidence: String,
+    pub thread_id: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

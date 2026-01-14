@@ -16,6 +16,8 @@ pub struct Model {
     pub mail_label: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    pub extract_tasks: bool,
+    pub priority: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
