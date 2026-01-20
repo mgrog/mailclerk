@@ -1,3 +1,10 @@
+pub mod chunker;
+pub mod queue;
+pub mod service;
+
+pub use queue::{EmbeddingQueue, EmbeddingTask};
+pub use service::{embed_and_store_email, should_embed_email};
+
 use crate::server_config::cfg;
 use anyhow::Context;
 use serde_json::json;
@@ -11,7 +18,7 @@ async fn get_category_embeds(
     // Add known model -> embedding dimension pairs here
     m.insert(
         "billing",
-        embed(
+        embed_text(
             http_client,
             "Invoices, subscription renewals, payment issues",
         )
@@ -20,7 +27,7 @@ async fn get_category_embeds(
     );
     m.insert(
         "meetings",
-        embed(
+        embed_text(
             http_client,
             "Scheduling meetings, calendar invites, availability",
         )
@@ -30,14 +37,14 @@ async fn get_category_embeds(
 
     m.insert(
         "work",
-        embed(http_client, "Project updates, tasks, reports")
+        embed_text(http_client, "Project updates, tasks, reports")
             .await
             .unwrap(),
     );
 
     m.insert(
         "marketing",
-        embed(
+        embed_text(
             http_client,
             "Product announcements, promotions, newsletters",
         )
@@ -48,7 +55,7 @@ async fn get_category_embeds(
     m
 }
 
-async fn embed(http_client: &HttpClient, s: &str) -> anyhow::Result<Vec<f32>> {
+pub async fn embed_text(http_client: &HttpClient, s: &str) -> anyhow::Result<Vec<f32>> {
     let resp = http_client
         .post("https://api.mistral.ai/v1/embeddings")
         .bearer_auth(&cfg.api.key)
@@ -93,7 +100,7 @@ pub async fn categorize_email_with_confidence(
     email_text: &str,
 ) -> anyhow::Result<ClassificationResult> {
     let categories = get_category_embeds(http_client).await;
-    let email_vec = embed(http_client, email_text)
+    let email_vec = embed_text(http_client, email_text)
         .await
         .context("Embedding failed!")?;
 

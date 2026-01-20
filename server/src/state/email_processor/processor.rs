@@ -41,6 +41,7 @@ use crate::{
 };
 
 use crate::email::rules::{EmailRule, HEURISTIC_EMAIL_RULES};
+use crate::embed::{should_embed_email, EmbeddingQueue, EmbeddingTask};
 
 lazy_static::lazy_static!(
     static ref DAILY_QUOTA: i64 = cfg.api.token_limits.daily_user_quota as i64;
@@ -49,12 +50,13 @@ lazy_static::lazy_static!(
             prompt_content: "Unknown".to_string(),
             mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
             extract_tasks: true,
+            priority: 2,
         };
     static ref EXCEPTION_RULES: &'static [&'static str] = &["Terms of Service Update", "Verification Code", "Security Alert"];
 );
 
 #[derive(Clone)]
-// EmailProcessor processes emails for a single user
+/// EmailProcessor processes emails for a single user
 pub struct EmailProcessor {
     pub user_id: i32,
     pub user_account_access_id: i32,
@@ -68,6 +70,7 @@ pub struct EmailProcessor {
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
     priority_queue: PromptPriorityQueue,
+    embedding_queue: EmbeddingQueue,
     user_email_rules: Arc<UserEmailRules>,
     interrupt_channel: (
         tokio::sync::watch::Sender<InterruptSignal>,
@@ -88,6 +91,7 @@ impl EmailProcessor {
         let http_client = server_state.http_client.clone();
         let rate_limiters = server_state.rate_limiters.clone();
         let priority_queue = server_state.priority_queue.clone();
+        let embedding_queue = server_state.embedding_queue.clone();
 
         let email_client = EmailClient::new(http_client.clone(), conn.clone(), user)
             .await
@@ -122,6 +126,7 @@ impl EmailProcessor {
             conn,
             rate_limiters,
             priority_queue,
+            embedding_queue,
             user_email_rules: Arc::new(user_email_rules),
             interrupt_channel,
         };
@@ -557,6 +562,24 @@ impl EmailProcessor {
                 Err(e) => {
                     tracing::warn!("Error extracting tasks from email: {:?}", e);
                 }
+            }
+        }
+
+        // Queue embedding task for low-priority processing (deferred)
+        if should_embed_email(result.email_rule.priority) {
+            let task = EmbeddingTask {
+                email_id: email_message.id.clone(),
+                user_id: self.user_id,
+                user_email: self.email_address.clone(),
+                subject: email_message.subject.clone(),
+                body: email_message.body.clone(),
+            };
+            if self.embedding_queue.push(task) {
+                tracing::debug!(
+                    "Queued embedding task for email {} (label: {})",
+                    email_message.id,
+                    result.email_rule.mail_label
+                );
             }
         }
 

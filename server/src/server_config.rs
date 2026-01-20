@@ -37,6 +37,7 @@ pub struct Category {
 pub struct Heuristic {
     pub from: String,
     pub mail_label: String,
+    pub priority: i32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

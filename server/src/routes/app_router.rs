@@ -108,6 +108,7 @@ impl AppRouter {
                 Router::new()
                     .route("/", get(email::get_all))
                     .route("/feed", get(email::get_feed))
+                    .route("/search", get(email::search))
                     .route(
                         "/send",
                         post(email::send).layer(DefaultBodyLimit::max(25 * 1024 * 1024)), // 25MB limit for attachments

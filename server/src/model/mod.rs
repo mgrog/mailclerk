@@ -1,5 +1,6 @@
 pub mod auto_cleanup_setting;
 pub mod daily_email_summary;
+pub mod email_embedding;
 pub mod labels;
 pub mod processed_email;
 pub mod response;

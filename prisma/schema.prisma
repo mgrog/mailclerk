@@ -138,7 +138,11 @@ model user_email_rule {
 }
 
 model email_embedding {
-  id        Int                         @id @default(autoincrement())
-  email_id  String                      @db.VarChar
-  embedding Unsupported("vector(1024)")
+  id          Int                          @id @default(autoincrement())
+  email_id    String                       @db.VarChar
+  user_id     Int
+  chunk_index Int
+  chunk_text  String?
+  created_at  DateTime                     @default(now()) @db.Timestamptz(6)
+  embedding   Unsupported("halfvec(1024)")
 }

@@ -8,8 +8,13 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub email_id: String,
-    #[sea_orm(column_type = "custom(\"vector\")")]
+    #[sea_orm(column_type = "custom(\"halfvec\")")]
     pub embedding: String,
+    pub chunk_index: i32,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub chunk_text: Option<String>,
+    pub created_at: DateTimeWithTimeZone,
+    pub user_id: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

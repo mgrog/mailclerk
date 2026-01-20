@@ -13,6 +13,8 @@ use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
+use crate::embed::{embed_and_store_email, EmbeddingQueue};
+use crate::email::simplified_message::SimplifiedMessage;
 use crate::model::auto_cleanup_setting::AutoCleanupSettingCtrl;
 use crate::model::processed_email::ProcessedEmailCtrl;
 use crate::model::user::UserCtrl;
@@ -191,6 +193,109 @@ pub fn run_email_processing_loop(
                                     .unwrap_or_else(|| "Unknown panic".to_string());
                                 tracing::error!(
                                     "Email processing worker {} panicked, recovering: {}",
+                                    worker_id,
+                                    msg
+                                );
+                            }
+                            Ok(true) => {}
+                        }
+                    }
+                }
+            })
+            .await;
+    })
+}
+
+/// Low-priority loop that processes deferred embedding tasks.
+/// Runs with fewer workers than email processing to avoid blocking main pipeline.
+pub fn run_embedding_processing_loop(
+    embedding_queue: EmbeddingQueue,
+    http_client: HttpClient,
+    conn: DatabaseConnection,
+    rate_limiters: RateLimiters,
+) -> JoinHandle<()> {
+    // Use fewer workers for embedding (low priority background task)
+    let max_workers = 2;
+    tracing::info!(
+        "Starting embedding processing loop with {} workers...",
+        max_workers
+    );
+
+    tokio::spawn(async move {
+        stream::iter(0..max_workers)
+            .for_each_concurrent(max_workers, |worker_id| {
+                let queue = embedding_queue.clone();
+                let http_client = http_client.clone();
+                let conn = conn.clone();
+                let rate_limiters = rate_limiters.clone();
+
+                async move {
+                    loop {
+                        let queue = queue.clone();
+                        let http_client = http_client.clone();
+                        let conn = conn.clone();
+                        let rate_limiters = rate_limiters.clone();
+
+                        let result = AssertUnwindSafe(async {
+                            if let Some(task) = queue.pop() {
+                                let email_id = task.email_id.clone();
+                                let _guard = queue.create_processing_guard(email_id.clone());
+
+                                // Create simplified message from task data
+                                let message = SimplifiedMessage {
+                                    id: task.email_id.clone(),
+                                    subject: task.subject.clone(),
+                                    body: task.body.clone(),
+                                    ..Default::default()
+                                };
+
+                                match embed_and_store_email(
+                                    &http_client,
+                                    &conn,
+                                    &rate_limiters,
+                                    &message,
+                                    task.user_id,
+                                )
+                                .await
+                                {
+                                    Ok(result) => {
+                                        tracing::debug!(
+                                            "Embedding worker {}: generated {} chunks for email {}",
+                                            worker_id,
+                                            result.chunks_created,
+                                            result.email_id
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Embedding worker {}: failed to embed email {}: {:?}",
+                                            worker_id,
+                                            email_id,
+                                            e
+                                        );
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .catch_unwind()
+                        .await;
+
+                        match result {
+                            Ok(false) => {
+                                // No work available, sleep longer for low-priority task
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                            }
+                            Err(panic) => {
+                                let msg = panic
+                                    .downcast_ref::<&str>()
+                                    .map(|s| s.to_string())
+                                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                                    .unwrap_or_else(|| "Unknown panic".to_string());
+                                tracing::error!(
+                                    "Embedding worker {} panicked, recovering: {}",
                                     worker_id,
                                     msg
                                 );
@@ -391,6 +496,7 @@ pub async fn run_auto_email_cleanup(
 
 pub fn watch(
     prompt_priority_queue: PromptPriorityQueue,
+    embedding_queue: EmbeddingQueue,
     email_processor_map: ActiveEmailProcessorMap,
     rate_limiters: RateLimiters,
 ) -> JoinHandle<()> {
@@ -406,12 +512,16 @@ pub fn watch(
             last_recorded = email_processor_map.total_emails_processed();
             let limiter_status = rate_limiters.get_status();
             let in_processing = prompt_priority_queue.num_in_processing();
+            let embed_queued = embedding_queue.len();
+            let embed_processing = embedding_queue.num_in_processing();
             if let Some(update) = email_processor_map.get_current_state() {
                 tracing::info!(
-                        "Processor Status Update:\n{email_per_second:.2} emails/s Bucket {limiter_status} Processing {in_processing}\n{update}",
+                        "Processor Status Update:\n{email_per_second:.2} emails/s Bucket {limiter_status} Processing {in_processing} | Embed queue {embed_queued} processing {embed_processing}\n{update}",
                         email_per_second = emails_per_second,
                         limiter_status = limiter_status,
                         in_processing = in_processing,
+                        embed_queued = embed_queued,
+                        embed_processing = embed_processing,
                         update = update
                     );
             }

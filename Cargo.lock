@@ -3864,7 +3864,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc58e2d255979a31caa7cabfa7aac654af0354220719ab7a68520ae7a91e8c0b"
 dependencies = [
  "serde",
- "sqlx",
 ]
 
 [[package]]
@@ -5292,7 +5291,6 @@ dependencies = [
  "chrono",
  "inherent",
  "ordered-float 4.6.0",
- "pgvector",
  "rust_decimal",
  "serde_json",
  "time",
@@ -5307,7 +5305,6 @@ checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
 dependencies = [
  "bigdecimal 0.4.10",
  "chrono",
- "pgvector",
  "rust_decimal",
  "sea-query",
  "serde_json",

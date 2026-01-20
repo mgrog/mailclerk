@@ -1,0 +1,2 @@
+ALTER TABLE email_embedding                                                                                                                                         
+ALTER COLUMN embedding TYPE halfvec USING embedding::halfvec; 

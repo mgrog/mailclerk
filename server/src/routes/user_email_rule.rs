@@ -1,6 +1,6 @@
 use crate::email::{
-    simplified_message::SimplifiedMessage,
     rules::{EmailRule, UserEmailRules},
+    simplified_message::SimplifiedMessage,
 };
 use crate::{prompt, rate_limiters::RateLimiters, HttpClient};
 use axum::{extract::State, Json};
@@ -37,6 +37,7 @@ pub async fn test(
         prompt_content: email_summary.clone(),
         mail_label: mail_label.clone(),
         extract_tasks: false,
+        priority: 0,
     });
 
     let simplified_msg = SimplifiedMessage::from_string(email_content);
