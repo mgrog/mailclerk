@@ -19,6 +19,7 @@ pub fn sanitize_html(html: &str) -> String {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SanitizedMessage {
     pub id: String,
     pub label_ids: Vec<String>,

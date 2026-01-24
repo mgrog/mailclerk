@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 use sea_orm::{FromQueryResult, JoinType, QuerySelect};
 use serde::{Deserialize, Serialize};
 
-use crate::{db_core::prelude::*, error::AppResult};
+use crate::{db_core::prelude::*, error::AppResult, prompt::task_extraction::ExtractedTask};
 
 pub struct ProcessedEmailCtrl;
 
@@ -25,12 +25,12 @@ pub struct FeedEmail {
     pub ai_confidence: String,
     pub category: String,
     pub history_id: sea_orm::prelude::Decimal,
-    pub extracted_tasks: Option<Vec<serde_json::Value>>,
+    pub extracted_tasks: Option<Vec<ExtractedTask>>,
     pub is_read: bool,
     pub due_date: Option<chrono::NaiveDateTime>,
     pub tasks_done: bool,
     pub has_new_reply: bool,
-    pub priority: Option<i32>,
+    pub priority: i32,
     pub priority_score: Decimal,
 }
 
@@ -188,7 +188,10 @@ impl ProcessedEmailCtrl {
         user_id: i32,
     ) -> AppResult<()> {
         ProcessedEmail::update_many()
-            .col_expr(processed_email::Column::IsRead, Value::Bool(Some(true)).into())
+            .col_expr(
+                processed_email::Column::IsRead,
+                Value::Bool(Some(true)).into(),
+            )
             .filter(processed_email::Column::Id.eq(message_id))
             .filter(processed_email::Column::UserId.eq(user_id))
             .exec(conn)
@@ -203,7 +206,10 @@ impl ProcessedEmailCtrl {
         user_id: i32,
     ) -> AppResult<()> {
         ProcessedEmail::update_many()
-            .col_expr(processed_email::Column::IsRead, Value::Bool(Some(false)).into())
+            .col_expr(
+                processed_email::Column::IsRead,
+                Value::Bool(Some(false)).into(),
+            )
             .filter(processed_email::Column::Id.eq(message_id))
             .filter(processed_email::Column::UserId.eq(user_id))
             .exec(conn)

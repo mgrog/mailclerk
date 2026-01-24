@@ -13,12 +13,10 @@ use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
-use crate::embed::{embed_and_store_email, EmbeddingQueue};
-use crate::email::simplified_message::SimplifiedMessage;
 use crate::model::auto_cleanup_setting::AutoCleanupSettingCtrl;
 use crate::model::processed_email::ProcessedEmailCtrl;
 use crate::model::user::UserCtrl;
-use crate::prompt::priority_queue::PromptPriorityQueue;
+use crate::prompt::{TaskData, TaskQueue};
 use crate::rate_limiters::RateLimiters;
 use crate::server_config::cfg;
 use crate::HttpClient;
@@ -36,12 +34,12 @@ pub async fn add_users_to_processing(
 
     // Stop users who shouldn't be processed
     let valid_emails: HashSet<String> = user_accounts.iter().map(|u| u.email.clone()).collect();
+
     for (email, proc) in email_processor_map.entries() {
         if !valid_emails.contains(&email) {
             proc.cancel();
         }
     }
-
     tracing::info!("Adding {} users to processing", user_accounts.len());
 
     for user in user_accounts {
@@ -72,9 +70,9 @@ pub async fn sweep_for_cancelled_subscriptions(
 
 /// Task that triggers each processor to queue new emails concurrently.
 /// Runs on a 60-second interval, iterating through all active processors.
-/// Also cleans up processors that have stopped queueing and have no items in the priority queue.
+/// Also cleans up processors that have stopped queueing and have no items in the task queue.
 pub fn run_email_queueing_loop(
-    prompt_priority_queue: PromptPriorityQueue,
+    task_queue: TaskQueue,
     email_processor_map: ActiveEmailProcessorMap,
 ) -> JoinHandle<()> {
     let mut interval = interval(Duration::from_secs(60));
@@ -84,7 +82,7 @@ pub fn run_email_queueing_loop(
         loop {
             interval.tick().await;
 
-            let queue = prompt_priority_queue.clone();
+            let queue = task_queue.clone();
             let map = email_processor_map.clone();
 
             let result = AssertUnwindSafe(async {
@@ -98,10 +96,10 @@ pub fn run_email_queueing_loop(
                     .into_iter()
                     .partition(|(_, processor)| processor.has_stopped_queueing());
 
-                // Only cleanup stopped processors that have nothing left in the priority queue
+                // Only cleanup stopped processors that have nothing left in the task queue
                 let processors_for_cleanup: HashSet<_> = stopped
                     .into_iter()
-                    .filter(|(email, _)| queue.num_in_queue(email) == 0)
+                    .filter(|(email, _)| queue.queue_count(email).total() == 0)
                     .map(|(email, _)| email)
                     .collect();
 
@@ -140,22 +138,22 @@ pub fn run_email_queueing_loop(
     })
 }
 
-/// This function pulls emails from the prompt priority queue and sends them to the
-/// appropriate email processor for processing.
-pub fn run_email_processing_loop(
-    prompt_priority_queue: PromptPriorityQueue,
+/// This function pulls categorization tasks from the task queue (High and Low priority)
+/// and sends them to the appropriate email processor for processing.
+pub fn run_categorization_loop(
+    task_queue: TaskQueue,
     email_processor_map: ActiveEmailProcessorMap,
 ) -> JoinHandle<()> {
     let max_workers = cfg.api.prompt_limits.rate_limit_per_sec * 2 - 1;
     tracing::info!(
-        "Starting email processing loop with {} workers...",
+        "Starting categorization loop with {} workers...",
         max_workers
     );
 
     tokio::spawn(async move {
         stream::iter(0..max_workers)
             .for_each_concurrent(max_workers, |worker_id| {
-                let queue = prompt_priority_queue.clone();
+                let queue = task_queue.clone();
                 let map = email_processor_map.clone();
                 async move {
                     loop {
@@ -163,11 +161,12 @@ pub fn run_email_processing_loop(
                         let map = map.clone();
 
                         let result = AssertUnwindSafe(async {
-                            if let Some(entry) = queue.pop() {
-                                let email_id = entry.email_id;
+                            // Only pop categorization tasks (High/Low), skip Background
+                            if let Some(entry) = queue.pop_categorization() {
+                                let email_id = entry.email_id.clone();
                                 // Create guard that will remove email from in_processing set when dropped
                                 // This ensures cleanup even if process_email panics
-                                let _guard = queue.create_processing_guard(email_id);
+                                let _guard = queue.create_processing_guard(email_id.clone());
                                 if let Some(processor) = map.get(&entry.user_email) {
                                     processor.process_email(email_id, entry.priority).await;
                                 }
@@ -192,7 +191,7 @@ pub fn run_email_processing_loop(
                                     .or_else(|| panic.downcast_ref::<String>().cloned())
                                     .unwrap_or_else(|| "Unknown panic".to_string());
                                 tracing::error!(
-                                    "Email processing worker {} panicked, recovering: {}",
+                                    "Categorization worker {} panicked, recovering: {}",
                                     worker_id,
                                     msg
                                 );
@@ -206,106 +205,117 @@ pub fn run_email_processing_loop(
     })
 }
 
-/// Low-priority loop that processes deferred embedding tasks.
-/// Runs with fewer workers than email processing to avoid blocking main pipeline.
-pub fn run_embedding_processing_loop(
-    embedding_queue: EmbeddingQueue,
+/// This function pulls embedding tasks from the task queue (Background priority)
+/// and processes them in batches using the Mistral embedding API.
+pub fn run_embedding_loop(
+    task_queue: TaskQueue,
     http_client: HttpClient,
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
 ) -> JoinHandle<()> {
-    // Use fewer workers for embedding (low priority background task)
-    let max_workers = 2;
+    use crate::model::email_embedding::{EmailEmbeddingCtrl, EmbeddingInsert};
+
+    let batch_size = cfg.embedding.batch_size;
+    let batch_wait_ms = cfg.embedding.batch_wait_ms;
+
     tracing::info!(
-        "Starting embedding processing loop with {} workers...",
-        max_workers
+        "Starting embedding loop (batch_size={}, batch_wait_ms={})...",
+        batch_size,
+        batch_wait_ms
     );
 
     tokio::spawn(async move {
-        stream::iter(0..max_workers)
-            .for_each_concurrent(max_workers, |worker_id| {
-                let queue = embedding_queue.clone();
-                let http_client = http_client.clone();
-                let conn = conn.clone();
-                let rate_limiters = rate_limiters.clone();
+        loop {
+            // Wait for categorization work to clear, or timeout
+            let mut waited = 0u64;
+            while task_queue.has_categorization_work() && waited < batch_wait_ms {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                waited += 100;
+            }
 
-                async move {
-                    loop {
-                        let queue = queue.clone();
-                        let http_client = http_client.clone();
-                        let conn = conn.clone();
-                        let rate_limiters = rate_limiters.clone();
+            // Try to get a batch of embedding tasks
+            let batch = task_queue.pop_background_batch(batch_size);
 
-                        let result = AssertUnwindSafe(async {
-                            if let Some(task) = queue.pop() {
-                                let email_id = task.email_id.clone();
-                                let _guard = queue.create_processing_guard(email_id.clone());
+            if batch.is_empty() {
+                // No embedding work, sleep and try again
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                continue;
+            }
 
-                                // Create simplified message from task data
-                                let message = SimplifiedMessage {
-                                    id: task.email_id.clone(),
-                                    subject: task.subject.clone(),
-                                    body: task.body.clone(),
-                                    ..Default::default()
-                                };
+            tracing::debug!("Processing embedding batch of {} tasks", batch.len());
 
-                                match embed_and_store_email(
-                                    &http_client,
-                                    &conn,
-                                    &rate_limiters,
-                                    &message,
-                                    task.user_id,
-                                )
-                                .await
-                                {
-                                    Ok(result) => {
-                                        tracing::debug!(
-                                            "Embedding worker {}: generated {} chunks for email {}",
-                                            worker_id,
-                                            result.chunks_created,
-                                            result.email_id
-                                        );
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "Embedding worker {}: failed to embed email {}: {:?}",
-                                            worker_id,
-                                            email_id,
-                                            e
-                                        );
-                                    }
-                                }
-                                true
+            // Acquire rate limit before making API call
+            rate_limiters.acquire_one().await;
+
+            // Collect chunks with their parent entry info for batch embedding
+            // Each chunk needs to track: email_id, user_id, chunk_index, text
+            struct ChunkInfo {
+                email_id: String,
+                user_id: i32,
+                chunk_index: i32,
+                text: String,
+            }
+
+            let mut chunk_infos: Vec<ChunkInfo> = Vec::new();
+            let mut processed_email_ids: Vec<String> = Vec::new();
+
+            for entry in batch {
+                if let TaskData::Embedding { chunks } = &entry.task {
+                    for chunk in chunks {
+                        chunk_infos.push(ChunkInfo {
+                            email_id: entry.email_id.clone(),
+                            user_id: entry.user_id,
+                            chunk_index: chunk.index as i32,
+                            text: chunk.text.clone(),
+                        });
+                    }
+                    processed_email_ids.push(entry.email_id.clone());
+                }
+            }
+
+            if chunk_infos.is_empty() {
+                continue;
+            }
+
+            let texts: Vec<String> = chunk_infos.iter().map(|c| c.text.clone()).collect();
+
+            // Call Mistral batch embedding API
+            match crate::embed::service::embed_batch(&http_client, &texts).await {
+                Ok(embeddings) => {
+                    // Build batch insert entries
+                    let inserts: Vec<EmbeddingInsert> = chunk_infos
+                        .into_iter()
+                        .zip(embeddings)
+                        .map(|(chunk_info, embedding)| EmbeddingInsert {
+                            email_id: chunk_info.email_id,
+                            user_id: chunk_info.user_id,
+                            chunk_index: chunk_info.chunk_index,
+                            embedding,
+                            chunk_text: if cfg.settings.training_mode {
+                                Some(chunk_info.text)
                             } else {
-                                false
-                            }
+                                None
+                            },
                         })
-                        .catch_unwind()
-                        .await;
+                        .collect();
 
-                        match result {
-                            Ok(false) => {
-                                // No work available, sleep longer for low-priority task
-                                tokio::time::sleep(Duration::from_secs(2)).await;
-                            }
-                            Err(panic) => {
-                                let msg = panic
-                                    .downcast_ref::<&str>()
-                                    .map(|s| s.to_string())
-                                    .or_else(|| panic.downcast_ref::<String>().cloned())
-                                    .unwrap_or_else(|| "Unknown panic".to_string());
-                                tracing::error!(
-                                    "Embedding worker {} panicked, recovering: {}",
-                                    worker_id,
-                                    msg
-                                );
-                            }
-                            Ok(true) => {}
-                        }
+                    let count = inserts.len();
+                    if let Err(e) = EmailEmbeddingCtrl::batch_insert(&conn, inserts).await {
+                        tracing::error!("Failed to insert embeddings batch: {:?}", e);
+                    } else {
+                        tracing::debug!("Successfully embedded {} chunks", count);
                     }
                 }
-            })
-            .await;
+                Err(e) => {
+                    tracing::error!("Batch embedding failed: {:?}", e);
+                }
+            }
+
+            // Mark all as done
+            for email_id in processed_email_ids {
+                task_queue.mark_done(&email_id);
+            }
+        }
     })
 }
 
@@ -495,8 +505,7 @@ pub async fn run_auto_email_cleanup(
 }
 
 pub fn watch(
-    prompt_priority_queue: PromptPriorityQueue,
-    embedding_queue: EmbeddingQueue,
+    task_queue: TaskQueue,
     email_processor_map: ActiveEmailProcessorMap,
     rate_limiters: RateLimiters,
 ) -> JoinHandle<()> {
@@ -511,17 +520,17 @@ pub fn watch(
             now = std::time::Instant::now();
             last_recorded = email_processor_map.total_emails_processed();
             let limiter_status = rate_limiters.get_status();
-            let in_processing = prompt_priority_queue.num_in_processing();
-            let embed_queued = embedding_queue.len();
-            let embed_processing = embedding_queue.num_in_processing();
+            let queue_count = task_queue.total_count();
+            let in_processing = task_queue.num_in_processing();
             if let Some(update) = email_processor_map.get_current_state() {
                 tracing::info!(
-                        "Processor Status Update:\n{email_per_second:.2} emails/s Bucket {limiter_status} Processing {in_processing} | Embed queue {embed_queued} processing {embed_processing}\n{update}",
+                        "Processor Status Update:\n{email_per_second:.2} emails/s | Bucket {limiter_status} | Processing {in_processing} | Queue: H={high} L={low} BG={background}\n{update}",
                         email_per_second = emails_per_second,
                         limiter_status = limiter_status,
                         in_processing = in_processing,
-                        embed_queued = embed_queued,
-                        embed_processing = embed_processing,
+                        high = queue_count.high,
+                        low = queue_count.low,
+                        background = queue_count.background,
                         update = update
                     );
             }

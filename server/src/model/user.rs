@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::{
     db_core::prelude::*,
     error::{AppError, AppResult},
-    routes::auth::{self, AuthCallbackError, OauthResult},
+    routes::auth::{self, AuthCallbackError},
     server_config::cfg,
     HttpClient,
 };
@@ -59,6 +59,7 @@ impl UserCtrl {
             created_at: ActiveValue::Set(now),
             updated_at: ActiveValue::Set(now),
             setup_completed: ActiveValue::Set(false),
+            last_updated_email_rules: ActiveValue::Set(now),
         };
 
         let insert_result = User::insert(active_model).exec(conn).await;
@@ -84,6 +85,16 @@ impl UserCtrl {
             .one(conn)
             .await
             .context("Error fetching user by email")?
+            .ok_or(AppError::NotFound("User not found".to_string()))?;
+
+        Ok(user)
+    }
+
+    pub async fn get_by_id(conn: &DatabaseConnection, user_id: i32) -> AppResult<user::Model> {
+        let user = User::find_by_id(user_id)
+            .one(conn)
+            .await
+            .context("Error fetching user by id")?
             .ok_or(AppError::NotFound("User not found".to_string()))?;
 
         Ok(user)
@@ -199,29 +210,13 @@ impl UserCtrl {
                 uaa.expires_at,
                 uaa.needs_reauthentication,
                 COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
-                latest_user_email_rule.updated_at AS last_rule_update_time
+                u.last_updated_email_rules
             FROM
                 "user" AS u
             JOIN
                 "user_account_access" AS uaa ON u.email = uaa.user_email
             LEFT JOIN
                 "user_token_usage_stat" ON u.email = "user_token_usage_stat".user_email AND "user_token_usage_stat".date = $1::date
-            LEFT JOIN
-                (
-                    SELECT
-                        user_id,
-                        updated_at
-                    FROM
-                        (
-                            SELECT
-                                user_id,
-                                updated_at,
-                                ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY updated_at DESC) AS row_num
-                            FROM
-                                user_email_rule
-                        ) AS subquery
-                    WHERE row_num = 1
-                ) AS latest_user_email_rule ON u.id = latest_user_email_rule.user_id
             WHERE
                 u.subscription_status = (CAST('ACTIVE' AS subscription_status))
                 AND ("user_token_usage_stat".tokens_consumed < $2 OR "user_token_usage_stat".tokens_consumed IS NULL)
@@ -358,7 +353,7 @@ pub struct UserWithAccountAccessAndUsage {
     pub needs_reauthentication: bool,
     pub expires_at: DateTimeWithTimeZone,
     pub tokens_consumed: i64,
-    pub last_rule_update_time: Option<DateTimeWithTimeZone>,
+    pub last_updated_email_rules: DateTimeWithTimeZone,
 }
 
 impl Id for UserWithAccountAccessAndUsage {

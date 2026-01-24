@@ -2,7 +2,7 @@ extern crate google_gmail1 as gmail;
 
 use crate::{
     auth::{
-        jwt::{generate_redirect_jwt, get_jwt_headers},
+        jwt::{generate_redirect_jwt, get_jwt_headers, Claims},
         session_store::AuthSessionStore,
     },
     db_core::prelude::*,
@@ -289,6 +289,14 @@ pub async fn handler_login(
         get_jwt_headers(&token),
         Json(json!({ "message": "Logged in" })),
     ))
+}
+
+pub async fn handler_me(
+    claims: Claims,
+    State(conn): State<DatabaseConnection>,
+) -> AppJsonResult<user::Model> {
+    let user = UserCtrl::get_by_id(&conn, claims.sub).await?;
+    Ok(Json(user))
 }
 
 pub async fn handler_refresh_user_token(

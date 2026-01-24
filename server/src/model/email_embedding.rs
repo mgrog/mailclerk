@@ -33,7 +33,58 @@ pub struct ChunkMatch {
     pub similarity: f64,
 }
 
+/// Entry for batch inserting embeddings
+/// This is used because sea_orm does not
+/// support halfvec well
+pub struct EmbeddingInsert {
+    pub email_id: String,
+    pub user_id: i32,
+    pub embedding: Vec<f32>,
+    pub chunk_index: i32,
+    pub chunk_text: Option<String>,
+}
+
 impl EmailEmbeddingCtrl {
+    /// Batch insert multiple embeddings in a single query
+    pub async fn batch_insert(
+        conn: &DatabaseConnection,
+        entries: Vec<EmbeddingInsert>,
+    ) -> Result<()> {
+        use entity::email_embedding;
+        use sea_orm::sea_query::{Expr, Query};
+
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let mut insert_stmt = Query::insert()
+            .into_table(email_embedding::Entity)
+            .columns([
+                email_embedding::Column::EmailId,
+                email_embedding::Column::UserId,
+                email_embedding::Column::ChunkIndex,
+                email_embedding::Column::Embedding,
+                email_embedding::Column::ChunkText,
+            ])
+            .to_owned();
+
+        for entry in entries {
+            let embedding_str = format_vector(&entry.embedding);
+            insert_stmt.values_panic([
+                entry.email_id.into(),
+                entry.user_id.into(),
+                entry.chunk_index.into(),
+                Expr::cust(format!("'{}'::halfvec", embedding_str)),
+                entry.chunk_text.into(),
+            ]);
+        }
+
+        let builder = conn.get_database_backend();
+        conn.execute(builder.build(&insert_stmt)).await?;
+
+        Ok(())
+    }
+
     /// Search for similar emails using vector cosine similarity.
     ///
     /// This performs a per-user scoped search using pgvector's cosine distance operator.

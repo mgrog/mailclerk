@@ -33,8 +33,7 @@ use axum::{extract::FromRef, routing::get, Router};
 use db_core::prelude::*;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
-use embed::EmbeddingQueue;
-use prompt::priority_queue::PromptPriorityQueue;
+use prompt::TaskQueue;
 use rate_limiters::RateLimiters;
 use reqwest::Certificate;
 use routes::AppRouter;
@@ -61,14 +60,13 @@ struct ServerState {
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
     session_store: AuthSessionStore,
-    pub priority_queue: PromptPriorityQueue,
-    pub embedding_queue: EmbeddingQueue,
+    pub task_queue: TaskQueue,
     pub email_client_cache: EmailClientCache,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env::set_var("RUST_LOG", "info");
+    // env::set_var("RUST_LOG", "debug");
     dotenvy::dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
     let mut db_options = ConnectOptions::new(db_url);
@@ -95,13 +93,15 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(tokio::sync::RwLock::new(map))
     };
 
+    let rate_limiters = RateLimiters::from_env();
+    let task_queue = TaskQueue::new();
+
     let state = ServerState {
         http_client,
         conn,
-        rate_limiters: RateLimiters::from_env(),
+        rate_limiters,
         session_store,
-        priority_queue: PromptPriorityQueue::new(),
-        embedding_queue: EmbeddingQueue::new(),
+        task_queue,
         email_client_cache,
     };
 
@@ -112,9 +112,9 @@ async fn main() -> anyhow::Result<()> {
 
     let router = AppRouter::create(state.clone());
     let email_processing_map = ActiveEmailProcessorMap::new(state.clone());
+
     let processing_watch_handle = state::tasks::watch(
-        state.priority_queue.clone(),
-        state.embedding_queue.clone(),
+        state.task_queue.clone(),
         email_processing_map.clone(),
         state.rate_limiters.clone(),
     );
@@ -135,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
             )?)
             .await?;
 
-        let queue = state.priority_queue.clone();
+        let queue = state.task_queue.clone();
         let map = email_processing_map.clone();
         scheduler
             .add(Job::new_one_shot(
@@ -146,19 +146,19 @@ async fn main() -> anyhow::Result<()> {
             )?)
             .await?;
 
-        let queue = state.priority_queue.clone();
+        let queue = state.task_queue.clone();
         let map = email_processing_map.clone();
         scheduler
             .add(Job::new_one_shot(
                 Duration::from_secs(5),
                 move |_uuid, _l| {
-                    state::tasks::run_email_processing_loop(queue.clone(), map.clone());
+                    state::tasks::run_categorization_loop(queue.clone(), map.clone());
                 },
             )?)
             .await?;
 
-        // Start embedding processing loop (low priority, deferred)
-        let embedding_queue = state.embedding_queue.clone();
+        // Embedding processing loop - pulls from Background priority
+        let queue = state.task_queue.clone();
         let http_client = state.http_client.clone();
         let conn = state.conn.clone();
         let rate_limiters = state.rate_limiters.clone();
@@ -166,8 +166,8 @@ async fn main() -> anyhow::Result<()> {
             .add(Job::new_one_shot(
                 Duration::from_secs(10),
                 move |_uuid, _l| {
-                    state::tasks::run_embedding_processing_loop(
-                        embedding_queue.clone(),
+                    state::tasks::run_embedding_loop(
+                        queue.clone(),
                         http_client.clone(),
                         conn.clone(),
                         rate_limiters.clone(),
@@ -424,8 +424,7 @@ mod tests {
             conn,
             rate_limiters: RateLimiters::from_env(),
             session_store,
-            priority_queue: PromptPriorityQueue::new(),
-            embedding_queue: EmbeddingQueue::new(),
+            task_queue: TaskQueue::new(),
             email_client_cache,
         };
 

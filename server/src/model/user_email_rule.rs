@@ -14,6 +14,17 @@ pub struct CreateUserEmailRule {
     pub mail_label: String,
     pub extract_tasks: bool,
     pub priority: i32,
+    pub is_user_customized: bool,
+}
+
+pub struct UpdateUserEmailRule {
+    pub description: Option<String>,
+    pub semantic_key: Option<String>,
+    pub name: Option<String>,
+    pub mail_label: Option<String>,
+    pub extract_tasks: Option<bool>,
+    pub priority: Option<i32>,
+    pub is_user_customized: Option<bool>,
 }
 
 impl UserEmailRuleCtrl {
@@ -87,12 +98,80 @@ impl UserEmailRuleCtrl {
                 updated_at: ActiveValue::Set(now),
                 extract_tasks: ActiveValue::Set(rule.extract_tasks),
                 priority: ActiveValue::Set(rule.priority),
+                is_user_customized: ActiveValue::Set(rule.is_user_customized),
             })
             .collect();
 
-        UserEmailRule::insert_many(models).exec(conn).await?;
+        let txn = conn.begin().await?;
+
+        UserEmailRule::insert_many(models).exec(&txn).await?;
+
+        User::update(user::ActiveModel {
+            id: ActiveValue::Set(user_id),
+            last_updated_email_rules: ActiveValue::Set(now),
+            ..Default::default()
+        })
+        .exec(&txn)
+        .await?;
+
+        txn.commit().await?;
 
         Ok(())
+    }
+
+    pub async fn update_rule(
+        conn: &DatabaseConnection,
+        rule_id: i32,
+        update: UpdateUserEmailRule,
+    ) -> AppResult<user_email_rule::Model> {
+        let rule = UserEmailRule::find_by_id(rule_id)
+            .one(conn)
+            .await?
+            .ok_or_else(|| crate::error::AppError::NotFound("Rule not found".to_string()))?;
+
+        let user_id = rule.user_id;
+        let mut active_model: user_email_rule::ActiveModel = rule.into();
+
+        if let Some(description) = update.description {
+            active_model.description = ActiveValue::Set(description);
+        }
+        if let Some(semantic_key) = update.semantic_key {
+            active_model.semantic_key = ActiveValue::Set(semantic_key);
+        }
+        if let Some(name) = update.name {
+            active_model.name = ActiveValue::Set(name);
+        }
+        if let Some(mail_label) = update.mail_label {
+            active_model.mail_label = ActiveValue::Set(mail_label);
+        }
+        if let Some(extract_tasks) = update.extract_tasks {
+            active_model.extract_tasks = ActiveValue::Set(extract_tasks);
+        }
+        if let Some(priority) = update.priority {
+            active_model.priority = ActiveValue::Set(priority);
+        }
+        if let Some(is_user_customized) = update.is_user_customized {
+            active_model.is_user_customized = ActiveValue::Set(is_user_customized);
+        }
+
+        let now = chrono::Utc::now().into();
+        active_model.updated_at = ActiveValue::Set(now);
+
+        let txn = conn.begin().await?;
+
+        let updated_rule = active_model.update(&txn).await?;
+
+        User::update(user::ActiveModel {
+            id: ActiveValue::Set(user_id),
+            last_updated_email_rules: ActiveValue::Set(now),
+            ..Default::default()
+        })
+        .exec(&txn)
+        .await?;
+
+        txn.commit().await?;
+
+        Ok(updated_rule)
     }
 
     pub async fn create_default_rules(conn: &DatabaseConnection, user_id: i32) -> AppResult<()> {
@@ -106,6 +185,7 @@ impl UserEmailRuleCtrl {
                 mail_label: c.mail_label.clone(),
                 extract_tasks: false,
                 priority: c.priority,
+                is_user_customized: false,
             })
             .collect();
 

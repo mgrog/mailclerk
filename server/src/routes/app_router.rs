@@ -97,6 +97,7 @@ impl AppRouter {
             .route("/auth/gmail", get(auth::handler_auth_gmail))
             .route("/auth/callback", get(auth::handler_auth_gmail_callback))
             .route("/auth/login", post(auth::handler_login))
+            .route("/auth/me", get(auth::handler_me))
             .route(
                 "/check_account_connection",
                 get(account_connection::check_account_connection),

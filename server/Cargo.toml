@@ -48,7 +48,7 @@ tokenizer = { path = "../libs/tokenizer" }
 url = "2.5.3"
 oauth2 = "4.4.2"
 async-session = "3.0.0"
-axum-extra = { version = "0.9.4", features = ["typed-header"] }
+axum-extra = { version = "0.9.4", features = ["typed-header", "cookie"] }
 http = "1.1.0"
 jsonwebtoken = "9.3.0"
 strum = { version = "0.26.3", features = ["derive"] }

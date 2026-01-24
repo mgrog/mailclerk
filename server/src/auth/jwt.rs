@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 
 use axum::{async_trait, extract::FromRequestParts, http::HeaderMap, RequestPartsExt};
 use axum_extra::{
+    extract::CookieJar,
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
@@ -103,11 +104,20 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Extract the token from the authorization header
-        let TypedHeader(Authorization(bearer)) = parts
+        // Try to extract token from Authorization header first
+        let token = if let Ok(TypedHeader(Authorization(bearer))) = parts
             .extract::<TypedHeader<Authorization<Bearer>>>()
             .await
-            .map_err(|_| AuthError::MissingCredentials)?;
+        {
+            bearer.token().to_string()
+        } else {
+            // Fall back to httpOnly cookie
+            let cookies = CookieJar::from_headers(&parts.headers);
+            cookies
+                .get(COOKIE_NAME)
+                .map(|c| c.value().to_string())
+                .ok_or(AuthError::MissingCredentials)?
+        };
 
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_aud = false;
@@ -115,12 +125,10 @@ where
 
         // Decode the user data
         let token_data =
-            jsonwebtoken::decode::<Claims>(bearer.token(), &KEYS.decoding, &validation).map_err(
-                |e| {
-                    tracing::error!("Error decoding token: {:?}", e);
-                    AuthError::InvalidToken
-                },
-            )?;
+            jsonwebtoken::decode::<Claims>(&token, &KEYS.decoding, &validation).map_err(|e| {
+                tracing::error!("Error decoding token: {:?}", e);
+                AuthError::InvalidToken
+            })?;
 
         Ok(token_data.claims)
     }

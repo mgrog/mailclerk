@@ -70,6 +70,12 @@ pub struct Settings {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddingConfig {
+    pub batch_size: usize,
+    pub batch_wait_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ApiConfig {
     pub key: String,
     pub prompt_limits: PromptLimits,
@@ -90,6 +96,7 @@ struct ConfigFile {
     heuristics: Vec<Heuristic>,
     model: ModelConfig,
     frontend: FEConfig,
+    embedding: EmbeddingConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,13 +128,14 @@ pub struct ServerConfig {
     pub gmail_config: GmailConfig,
     pub model: ModelConfig,
     pub frontend: Frontend,
+    pub embedding: EmbeddingConfig,
 }
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}",
+            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}",
             self.settings,
             self.api,
             self.categories
@@ -141,6 +149,7 @@ impl std::fmt::Display for ServerConfig {
             self.gmail_config,
             self.model,
             self.frontend,
+            self.embedding,
         )
     }
 }
@@ -200,6 +209,7 @@ lazy_static! {
             model,
             heuristics,
             frontend,
+            embedding,
         } = cfg_file;
 
         let frontend = Frontend {
@@ -216,6 +226,7 @@ lazy_static! {
             gmail_config,
             model,
             frontend,
+            embedding,
         }
     };
     pub static ref UNKNOWN_CATEGORY: Category = Category {

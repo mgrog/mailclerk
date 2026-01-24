@@ -22,6 +22,7 @@ use crate::{
         rules::UserEmailRules,
         simplified_message::SimplifiedMessage,
     },
+    embed::chunker::chunk_email,
     prompt::task_extraction::ExtractedTask,
 };
 use crate::{
@@ -32,8 +33,7 @@ use crate::{
     },
     prompt::{
         mistral::{self, CategoryPromptResponse},
-        priority_queue::{Priority, PromptPriorityQueue},
-        task_extraction,
+        task_extraction, Priority, QueueEntry, TaskData, TaskQueue,
     },
     rate_limiters::RateLimiters,
     server_config::cfg,
@@ -41,7 +41,7 @@ use crate::{
 };
 
 use crate::email::rules::{EmailRule, HEURISTIC_EMAIL_RULES};
-use crate::embed::{should_embed_email, EmbeddingQueue, EmbeddingTask};
+use crate::embed::should_embed_email;
 
 lazy_static::lazy_static!(
     static ref DAILY_QUOTA: i64 = cfg.api.token_limits.daily_user_quota as i64;
@@ -69,8 +69,7 @@ pub struct EmailProcessor {
     http_client: HttpClient,
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
-    priority_queue: PromptPriorityQueue,
-    embedding_queue: EmbeddingQueue,
+    task_queue: TaskQueue,
     user_email_rules: Arc<UserEmailRules>,
     interrupt_channel: (
         tokio::sync::watch::Sender<InterruptSignal>,
@@ -90,8 +89,7 @@ impl EmailProcessor {
         let conn = server_state.conn.clone();
         let http_client = server_state.http_client.clone();
         let rate_limiters = server_state.rate_limiters.clone();
-        let priority_queue = server_state.priority_queue.clone();
-        let embedding_queue = server_state.embedding_queue.clone();
+        let task_queue = server_state.task_queue.clone();
 
         let email_client = EmailClient::new(http_client.clone(), conn.clone(), user)
             .await
@@ -125,8 +123,7 @@ impl EmailProcessor {
             http_client,
             conn,
             rate_limiters,
-            priority_queue,
-            embedding_queue,
+            task_queue,
             user_email_rules: Arc::new(user_email_rules),
             interrupt_channel,
         };
@@ -144,36 +141,21 @@ impl EmailProcessor {
         }
 
         // Only queue if no high priority emails are pending
-        if self
-            .priority_queue
-            .num_high_priority_in_queue(&self.email_address)
-            > 0
-        {
+        let queue_count = self.task_queue.queue_count(&self.email_address);
+        if queue_count.high > 0 {
             return Ok(0);
         }
 
-        // Try to queue recent emails first
-        match self.queue_recent_emails().await {
-            Ok(n) if n > 0 => return Ok(n),
-            // Ok(_) if self.current_token_usage() < *LOW_PRIORITY_CUTOFF => {
-            //     // No recent emails and under quota, try older emails
-            //     return self.queue_older_emails().await;
-            // }
-            Err(e) => {
-                tracing::error!("Error queuing emails for {}: {:?}", self.email_address, e);
-                self.fail();
-                return Err(e);
-            }
-            _ => {}
-        }
-
-        Ok(0)
+        self.queue_recent_emails().await.inspect_err(|e| {
+            tracing::error!("Error queuing emails for {}: {:?}", self.email_address, e);
+            self.fail();
+        })
     }
 
     async fn fetch_email_ids(
         &self,
         options: Option<FetchOptions>,
-    ) -> anyhow::Result<IndexSet<u128>> {
+    ) -> anyhow::Result<IndexSet<String>> {
         #[derive(FromQueryResult)]
         struct ProcessedEmailId {
             id: String,
@@ -189,8 +171,8 @@ impl EmailProcessor {
         let already_processed_ids = query
             .await?
             .into_iter()
-            .map(|e| parse_id_to_int(e.id))
-            .collect::<HashSet<u128>>();
+            .map(|e| e.id)
+            .collect::<HashSet<String>>();
 
         let mut message_ids_to_process = IndexSet::new();
         let load_page = |next_page_token: Option<String>| async {
@@ -224,7 +206,7 @@ impl EmailProcessor {
                 .messages
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|m| m.id.map(parse_id_to_int))
+                .filter_map(|m| m.id)
                 .filter(|id| !already_processed_ids.contains(id))
             {
                 if message_ids_to_process.len() >= 500 {
@@ -256,10 +238,14 @@ impl EmailProcessor {
 
         let mut num_added = 0;
         for email_id in &new_email_ids {
-            if self
-                .priority_queue
-                .push(self.email_address.clone(), *email_id, Priority::High)
-            {
+            let entry = QueueEntry {
+                user_email: self.email_address.clone(),
+                user_id: self.user_id,
+                email_id: email_id.clone(),
+                priority: Priority::High,
+                task: TaskData::Categorization,
+            };
+            if self.task_queue.push(entry) {
                 num_added += 1;
             }
         }
@@ -276,10 +262,14 @@ impl EmailProcessor {
 
         let mut num_added = 0;
         for email_id in &new_email_ids {
-            if self
-                .priority_queue
-                .push(self.email_address.clone(), *email_id, Priority::Low)
-            {
+            let entry = QueueEntry {
+                user_email: self.email_address.clone(),
+                user_id: self.user_id,
+                email_id: email_id.clone(),
+                priority: Priority::Low,
+                task: TaskData::Categorization,
+            };
+            if self.task_queue.push(entry) {
                 num_added += 1;
             }
         }
@@ -499,9 +489,7 @@ impl EmailProcessor {
         }
     }
 
-    async fn run_processor_pipeline(&self, id: u128) -> anyhow::Result<()> {
-        let email_id = parse_int_to_id(id);
-
+    async fn run_processor_pipeline(&self, email_id: String) -> anyhow::Result<()> {
         let email_message = self
             .email_client
             .get_simplified_message(&email_id)
@@ -533,7 +521,7 @@ impl EmailProcessor {
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Recorded message {} for training", email_message.id);
+                    tracing::debug!("Recorded message {} for training", email_message.id);
                 }
                 Err(e) => {
                     // This is a non-critical error, so we log it and continue
@@ -565,16 +553,18 @@ impl EmailProcessor {
             }
         }
 
-        // Queue embedding task for low-priority processing (deferred)
+        // Queue embedding task for batch processing (deferred, Background priority)
         if should_embed_email(result.email_rule.priority) {
-            let task = EmbeddingTask {
-                email_id: email_message.id.clone(),
-                user_id: self.user_id,
+            let chunks = chunk_email(&email_message);
+
+            let entry = QueueEntry {
                 user_email: self.email_address.clone(),
-                subject: email_message.subject.clone(),
-                body: email_message.body.clone(),
+                user_id: self.user_id,
+                email_id: email_message.id.clone(),
+                priority: Priority::Background,
+                task: TaskData::Embedding { chunks },
             };
-            if self.embedding_queue.push(task) {
+            if self.task_queue.push(entry) {
                 tracing::debug!(
                     "Queued embedding task for email {} (label: {})",
                     email_message.id,
@@ -606,7 +596,7 @@ impl EmailProcessor {
         }
     }
 
-    pub async fn process_email(&self, id: u128, priority: Priority) {
+    pub async fn process_email(&self, email_id: String, priority: Priority) {
         if self.is_cancelled() || self.is_quota_reached() || self.is_failed() {
             // Do not process email if processor is failed, cancelled or quota is reached
             return;
@@ -617,10 +607,10 @@ impl EmailProcessor {
             return;
         }
 
-        match self.run_processor_pipeline(id).await {
+        match self.run_processor_pipeline(email_id.clone()).await {
             Ok(_) => {}
             Err(e) => {
-                tracing::error!("Error processing email {}: {:?}", id, e);
+                tracing::error!("Error processing email {}: {:?}", email_id, e);
             }
         }
     }
@@ -702,28 +692,19 @@ impl EmailProcessor {
     }
 
     pub fn emails_remaining(&self) -> i64 {
-        self.priority_queue.num_in_queue(&self.email_address) as i64
+        self.task_queue
+            .queue_count(&self.email_address)
+            .categorization() as i64
     }
 
     pub fn status(&self) -> ProcessorStatus {
+        let queue_count = self.task_queue.queue_count(&self.email_address);
         match true {
             _ if self.is_cancelled() => ProcessorStatus::Cancelled,
             _ if self.is_quota_reached() => ProcessorStatus::QuotaExceeded,
             _ if self.is_failed() => ProcessorStatus::Failed,
-            _ if self
-                .priority_queue
-                .num_high_priority_in_queue(&self.email_address)
-                > 0 =>
-            {
-                ProcessorStatus::ProcessingHP
-            }
-            _ if self
-                .priority_queue
-                .num_low_priority_in_queue(&self.email_address)
-                > 0 =>
-            {
-                ProcessorStatus::ProcessingLP
-            }
+            _ if queue_count.high > 0 => ProcessorStatus::ProcessingHP,
+            _ if queue_count.low > 0 => ProcessorStatus::ProcessingLP,
             _ => ProcessorStatus::Queueing,
         }
     }
@@ -734,37 +715,20 @@ impl EmailProcessor {
 
     pub fn get_current_state(&self) -> EmailProcessorStatusUpdate {
         let status = self.status();
-
-        let num_processing_hp = self
-            .priority_queue
-            .num_high_priority_in_queue(&self.email_address);
-
-        let num_processing_lp = self
-            .priority_queue
-            .num_low_priority_in_queue(&self.email_address);
+        let queue_count = self.task_queue.queue_count(&self.email_address);
 
         EmailProcessorStatusUpdate {
             status,
             emails_processed: self.total_emails_processed(),
             emails_failed: self.total_emails_failed(),
             emails_remaining: self.emails_remaining(),
-            total_emails: num_processing_lp + num_processing_hp,
-            hp_emails: num_processing_hp,
-            lp_emails: num_processing_lp,
+            total_emails: queue_count.categorization(),
+            hp_emails: queue_count.high,
+            lp_emails: queue_count.low,
             tokens_consumed: self.current_token_usage(),
             quota_remaining: *DAILY_QUOTA - self.current_token_usage(),
         }
     }
-}
-
-// Helper functions
-pub fn parse_id_to_int(id: impl Into<String>) -> u128 {
-    let id = id.into();
-    u128::from_str_radix(&id, 16).expect("Could not parse email id to integer")
-}
-
-pub fn parse_int_to_id(id: u128) -> String {
-    format!("{:x}", id)
 }
 
 #[derive(Display, Debug)]

@@ -3,7 +3,6 @@ use std::sync::RwLock;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
 
 use super::processor::EmailProcessor;
 use crate::model::user::UserWithAccountAccessAndUsage;
@@ -32,9 +31,7 @@ impl ActiveEmailProcessorMap {
         user: UserWithAccountAccessAndUsage,
     ) -> anyhow::Result<Arc<EmailProcessor>> {
         let user_email = user.email.clone();
-        let last_rule_update_time = user
-            .last_rule_update_time
-            .unwrap_or(DateTime::<Utc>::MIN_UTC.into());
+        let last_updated_email_rules = user.last_updated_email_rules;
 
         if let Some(processor) = self.active_processors.read().unwrap().get(&user_email) {
             match processor.status() {
@@ -50,7 +47,7 @@ impl ActiveEmailProcessorMap {
                     );
                     processor.cancel();
                 }
-                _ if processor.created_at < last_rule_update_time => {
+                _ if processor.created_at < last_updated_email_rules => {
                     tracing::info!(
                         "Rules have changed, recreating processor for {}",
                         user_email

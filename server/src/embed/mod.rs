@@ -1,9 +1,7 @@
 pub mod chunker;
-pub mod queue;
 pub mod service;
 
-pub use queue::{EmbeddingQueue, EmbeddingTask};
-pub use service::{embed_and_store_email, should_embed_email};
+pub use service::should_embed_email;
 
 use crate::server_config::cfg;
 use anyhow::Context;

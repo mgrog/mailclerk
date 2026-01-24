@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use indoc::formatdoc;
 use reqwest::StatusCode;
+use sea_orm::FromJsonQueryResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -117,7 +118,8 @@ pub struct TaskExtractionResponse {
     pub token_usage: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromJsonQueryResult)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtractedTask {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]

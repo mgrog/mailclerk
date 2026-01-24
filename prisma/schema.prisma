@@ -97,6 +97,7 @@ model user {
   auto_cleanup_settings      auto_cleanup_setting[]
   user_account_access        user_account_access?
   setup_completed            Boolean                   @default(false)
+  last_updated_email_rules   DateTime                  @default(now()) @db.Timestamptz(6)
 }
 
 enum cleanup_action {
@@ -121,16 +122,17 @@ model auto_cleanup_setting {
 }
 
 model user_email_rule {
-  id            Int      @id @default(autoincrement())
-  user_id       Int
-  description   String
-  semantic_key  String
-  name          String   @db.VarChar
-  mail_label    String   @db.VarChar
-  extract_tasks Boolean  @default(false)
-  priority      Int
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  id                 Int      @id @default(autoincrement())
+  user_id            Int
+  description        String
+  semantic_key       String
+  name               String   @db.VarChar
+  mail_label         String   @db.VarChar
+  extract_tasks      Boolean  @default(false)
+  priority           Int
+  is_user_customized Boolean  @default(false)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
 
   user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
@@ -145,4 +147,6 @@ model email_embedding {
   chunk_text  String?
   created_at  DateTime                     @default(now()) @db.Timestamptz(6)
   embedding   Unsupported("halfvec(1024)")
+
+  @@index([embedding], map: "email_embedding_embedding_hnsw")
 }

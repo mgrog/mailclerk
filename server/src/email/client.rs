@@ -12,7 +12,6 @@ use leaky_bucket::RateLimiter;
 use lib_email_clients::gmail::api_quota::{GMAIL_API_QUOTA, GMAIL_QUOTA_PER_SECOND};
 use lib_email_clients::gmail::label_colors::GmailLabelColorMap;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use serde_json::json;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Duration};
@@ -23,7 +22,6 @@ use crate::model::labels::UtilityLabels;
 use crate::model::user::UserAccessCtrl;
 use crate::{
     db_core::prelude::*,
-    model::response::LabelUpdate,
     model::{
         labels,
         user::{AccountAccess, EmailAddress, Id},
@@ -32,7 +30,6 @@ use crate::{
     HttpClient,
 };
 
-use super::rules::EmailRule;
 use super::simplified_message::SimplifiedMessage;
 
 macro_rules! gmail_url {

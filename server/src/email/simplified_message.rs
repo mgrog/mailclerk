@@ -6,21 +6,35 @@ use regex::Regex;
 
 use crate::email::sanitized_message::sanitize_html;
 
-const RE_WHITESPACE_STR: &str = r"[\r\t\n]+";
+const RE_WHITESPACE_STR: &str = r"[\t]+";
+const RE_NEWLINE_STR: &str = r"[\n\r]+";
 const RE_LONG_SPACE_STR: &str = r" {2,}";
-const RE_DIVIDERS_STR: &str = r"[-=_]{3,}";
+const RE_DIVIDERS_STR: &str = r"[-=_\*]{3,}";
 const RE_HTTP_LINK_STR: &str = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)";
+const RE_ORPHANED_PAREN_LINK_STR: &str = r"\(\[LINK\]";
 const RE_IMG_TAG_STR: &str = r#"<img[^>]*alt=["']([^"']*)["'][^>]*/?>"#;
+// Non-word patterns (hashes, UUIDs, tokens, etc.)
+const RE_HEX_HASH_STR: &str = r"\b[a-fA-F0-9]{32,}\b";
+const RE_UUID_STR: &str =
+    r"\b[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}\b";
+const RE_BASE64_LONG_STR: &str = r"[a-zA-Z0-9+/]{40,}={0,2}";
+const RE_LONG_TOKEN_STR: &str = r"\b[a-zA-Z0-9_-]{30,}\b";
 // Footer detection patterns (case-insensitive)
 const RE_FOOTER_STR: &str = r"(?i)(^|\s)(unsubscribe|opt[- ]?out|manage\s+(your\s+)?(email\s+)?preferences|email\s+preferences|update\s+(your\s+)?preferences|sent\s+from\s+(my\s+)?(iphone|ipad|android|samsung|galaxy|mobile|outlook)|get\s+outlook\s+for|this\s+(email|message)\s+(is\s+)?(was\s+)?sent\s+(to|from)|confidential(ity)?(\s+notice)?|this\s+(e-?mail|message)\s+(and\s+any\s+attachments\s+)?(is|are|may\s+be)\s+(intended|privileged|confidential)|if\s+you\s+(are\s+not|have\s+received)\s+(the\s+intended|this\s+(e-?mail|message)\s+in\s+error)|please\s+(delete|disregard|notify)|privacy\s+policy|terms\s+(of\s+service|and\s+conditions)|all\s+rights\s+reserved|©\s*\d{4}|\d{4}\s*©|view\s+(this\s+)?(email\s+)?in\s+(your\s+)?browser|trouble\s+viewing|add\s+us\s+to\s+your\s+address\s+book|you('re|\s+are)\s+(receiving|getting)\s+this\s+(email|message|because))";
 
 lazy_static::lazy_static!(
     static ref RE_WHITESPACE: Regex = Regex::new(RE_WHITESPACE_STR).unwrap();
+    static ref RE_NEWLINE: Regex = Regex::new(RE_NEWLINE_STR).unwrap();
     static ref RE_LONG_SPACE: Regex = Regex::new(RE_LONG_SPACE_STR).unwrap();
     static ref RE_DIVIDERS: Regex = Regex::new(RE_DIVIDERS_STR).unwrap();
     static ref RE_HTTP_LINK: Regex = Regex::new(RE_HTTP_LINK_STR).unwrap();
+    static ref RE_ORPHANED_PAREN_LINK: Regex = Regex::new(RE_ORPHANED_PAREN_LINK_STR).unwrap();
     static ref RE_IMG_TAG: Regex = Regex::new(RE_IMG_TAG_STR).unwrap();
     static ref RE_FOOTER: Regex = Regex::new(RE_FOOTER_STR).unwrap();
+    static ref RE_HEX_HASH: Regex = Regex::new(RE_HEX_HASH_STR).unwrap();
+    static ref RE_UUID: Regex = Regex::new(RE_UUID_STR).unwrap();
+    static ref RE_BASE64_LONG: Regex = Regex::new(RE_BASE64_LONG_STR).unwrap();
+    static ref RE_LONG_TOKEN: Regex = Regex::new(RE_LONG_TOKEN_STR).unwrap();
 );
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -72,9 +86,10 @@ impl SimplifiedMessage {
     pub fn from_string(email: String) -> Self {
         let b = email;
         let b = RE_HTTP_LINK.replace_all(&b, "[LINK]");
-        let b = RE_WHITESPACE.replace_all(&b, " ");
-        let b = RE_DIVIDERS.replace_all(&b, " ");
-        let b = RE_LONG_SPACE.replace_all(&b, " ");
+        let b = RE_ORPHANED_PAREN_LINK.replace_all(&b, "[LINK]");
+        let b = strip_non_words(&b);
+        let b = strip_non_text(&b);
+        let b = strip_formatting(&b);
         let body = b.to_string();
 
         SimplifiedMessage {
@@ -117,9 +132,10 @@ fn strip_formatting_and_links(msg: mail_parser::Message) -> StrippedMessage {
         let bytes = b.as_bytes();
         let b: String = html2text::from_read(bytes, 400);
         let b = RE_HTTP_LINK.replace_all(&b, "[LINK]"); // Replace bare URLs after html2text preserves link text
-        let b = RE_WHITESPACE.replace_all(&b, " ");
-        let b = RE_DIVIDERS.replace_all(&b, " ");
-        let b = RE_LONG_SPACE.replace_all(&b, " ");
+        let b = RE_ORPHANED_PAREN_LINK.replace_all(&b, "[LINK]"); // Clean up orphaned opening parens
+        let b = strip_non_words(&b); // Remove hashes, UUIDs, tokens, etc.
+        let b = strip_non_text(&b); // Remove control chars, keep all languages + emojis
+        let b = strip_formatting(&b);
         let b = strip_footer(&b); // Remove email footers
         b.to_string()
     });
@@ -135,6 +151,14 @@ fn replace_images<'h>(body: &'h str) -> Cow<'h, str> {
     RE_IMG_TAG.replace_all(body, "[An image of $1]")
 }
 
+fn strip_formatting(body: &str) -> Cow<'_, str> {
+    let b = RE_WHITESPACE.replace_all(body, " ");
+    let b = RE_NEWLINE.replace_all(&b, "\n");
+    let b = RE_DIVIDERS.replace_all(&b, " ");
+    let b = RE_LONG_SPACE.replace_all(&b, " ");
+    b.into_owned().into()
+}
+
 /// Remove email footers (unsubscribe links, legal disclaimers, signatures, etc.)
 fn strip_footer(body: &str) -> &str {
     if let Some(m) = RE_FOOTER.find(body) {
@@ -142,6 +166,49 @@ fn strip_footer(body: &str) -> &str {
     } else {
         body
     }
+}
+
+/// Remove non-word strings like hashes, UUIDs, base64 tokens, and long alphanumeric strings
+fn strip_non_words(body: &str) -> Cow<'_, str> {
+    let b = RE_HEX_HASH.replace_all(body, "");
+    let b = RE_UUID.replace_all(&b, "");
+    let b = RE_BASE64_LONG.replace_all(&b, "");
+    RE_LONG_TOKEN.replace_all(&b, "").into_owned().into()
+}
+
+/// Remove non-text characters (control chars, private use, etc.) while keeping
+/// letters from all languages, numbers, punctuation, and emojis
+fn strip_non_text(body: &str) -> String {
+    body.chars().filter(|c| is_valid_text_char(*c)).collect()
+}
+
+/// Check if a character is valid text (letters, numbers, punctuation, whitespace, emojis)
+fn is_valid_text_char(c: char) -> bool {
+    c.is_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation() || is_common_emoji(c)
+}
+
+/// Check if a character is a common emoji
+fn is_common_emoji(c: char) -> bool {
+    matches!(c,
+        // Emoticons
+        '\u{1F600}'..='\u{1F64F}' |
+        // Misc symbols and pictographs
+        '\u{1F300}'..='\u{1F5FF}' |
+        // Transport and map symbols
+        '\u{1F680}'..='\u{1F6FF}' |
+        // Flags
+        '\u{1F1E0}'..='\u{1F1FF}' |
+        // Supplemental symbols and pictographs
+        '\u{1F900}'..='\u{1F9FF}' |
+        // Symbols and pictographs extended-A
+        '\u{1FA00}'..='\u{1FA6F}' |
+        // Chess, cards, misc
+        '\u{2600}'..='\u{26FF}' |
+        // Dingbats
+        '\u{2700}'..='\u{27BF}' |
+        // Enclosed alphanumeric supplement (circled letters, etc)
+        '\u{1F100}'..='\u{1F1FF}'
+    )
 }
 
 #[derive(Debug, Default)]
@@ -241,9 +308,6 @@ mod tests {
         assert!(body.contains("[LINK]"));
         assert!(!body.contains("https://"));
 
-        // Should normalize whitespace
-        assert!(!body.contains("\n"));
-
         // Should remove dividers
         assert!(!body.contains("---"));
     }
@@ -273,9 +337,9 @@ mod tests {
 
     #[test]
     fn test_whitespace_normalization() {
-        let text = "Hello\t\tworld\n\ntest\r\nmore";
-        let result = RE_WHITESPACE.replace_all(text, " ");
-        assert_eq!(result, "Hello world test more");
+        let text = "Hello\t\tworld\n\ntest\r\rmore";
+        let result = strip_formatting(text);
+        assert_eq!(result, "Hello world\ntest\nmore");
     }
 
     #[test]
@@ -298,6 +362,67 @@ mod tests {
         let text = "Above ___ Below";
         let result = RE_DIVIDERS.replace_all(text, " ");
         assert_eq!(result, "Above   Below");
+    }
+
+    #[test]
+    fn test_strip_non_words() {
+        // Test hex hash removal (MD5, SHA256, etc.)
+        let text = "Your code is abc123def456abc123def456abc123def456 please verify";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Your code is  please verify");
+
+        // Test UUID removal
+        let text = "Reference: 550e8400-e29b-41d4-a716-446655440000 for your records";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Reference:  for your records");
+
+        // Test base64-like string removal
+        let text = "Token: aGVsbG8gd29ybGQgdGhpcyBpcyBhIGxvbmcgYmFzZTY0IHN0cmluZw== attached";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Token:  attached");
+
+        // Test long alphanumeric token removal
+        let text = "Tracking: abc123xyz789def456ghi012jkl345 here";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Tracking:  here");
+
+        // Test normal text is preserved
+        let text = "Hello world, this is a normal email message.";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Hello world, this is a normal email message.");
+
+        // Test short alphanumeric strings are preserved
+        let text = "Order #12345 confirmed for ABC123";
+        let result = strip_non_words(text);
+        assert_eq!(result, "Order #12345 confirmed for ABC123");
+    }
+
+    #[test]
+    fn test_strip_non_text() {
+        // Normal ASCII preserved
+        let text = "Hello world!";
+        let result = strip_non_text(text);
+        assert_eq!(result, "Hello world!");
+
+        // Emojis preserved
+        let text = "Great job! 🎉👍";
+        let result = strip_non_text(text);
+        assert_eq!(result, "Great job! 🎉👍");
+
+        // Other language text preserved
+        let text = "Héllo wörld café";
+        let result = strip_non_text(text);
+        assert_eq!(result, "Héllo wörld café");
+
+        // Mixed: emojis and other languages kept
+        let text = "Thanks! 😊 Merci für alles";
+        let result = strip_non_text(text);
+        assert_eq!(result, "Thanks! 😊 Merci für alles");
+
+        // Control characters removed
+        let text = "Hello\x00world\x1B\x07";
+        let result = strip_non_text(text);
+        assert_eq!(result, "Helloworld");
     }
 
     #[test]
