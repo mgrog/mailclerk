@@ -14,44 +14,9 @@ use tower_http::cors::CorsLayer;
 
 use crate::{request_tracing, ServerState};
 
-use super::{account_connection, auth, email, gmail_labels, user_email_rule};
-
 #[cfg(debug_assertions)]
-mod dev {
-    use axum::{extract::Query, http::StatusCode, response::IntoResponse, Json};
-    use serde::{Deserialize, Serialize};
-
-    use crate::auth::jwt::generate_dev_token;
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct DevTokenParams {
-        #[serde(default = "default_user_id")]
-        pub user_id: i32,
-        #[serde(default = "default_email")]
-        pub email: String,
-    }
-
-    fn default_user_id() -> i32 {
-        1
-    }
-
-    fn default_email() -> String {
-        "test@example.com".to_string()
-    }
-
-    #[derive(Serialize)]
-    struct DevTokenResponse {
-        token: String,
-    }
-
-    pub async fn dev_token(Query(params): Query<DevTokenParams>) -> impl IntoResponse {
-        match generate_dev_token(params.user_id, &params.email) {
-            Ok(token) => (StatusCode::OK, Json(DevTokenResponse { token })).into_response(),
-            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create token").into_response(),
-        }
-    }
-}
+use super::handlers::dev_only;
+use super::handlers::{account_connection, auth, email, gmail_labels, user, user_email_rule};
 
 pub struct AppRouter;
 
@@ -99,11 +64,20 @@ impl AppRouter {
             .route("/auth/login", post(auth::handler_login))
             .route("/auth/me", get(auth::handler_me))
             .route(
-                "/check_account_connection",
+                "/check-account-connection",
                 get(account_connection::check_account_connection),
             )
-            .route("/user_email_rule/test", post(user_email_rule::test))
+            .route("/user-email-rule/test", post(user_email_rule::test))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
+            .nest(
+                "/user",
+                Router::new()
+                    .route(
+                        "/unlock-daily-limit",
+                        post(user::handler_unlock_daily_limit),
+                    )
+                    .with_state(state.clone()),
+            )
             .nest(
                 "/email",
                 Router::new()
@@ -131,9 +105,12 @@ impl AppRouter {
         let router = router
             .route(
                 "/dev/refresh_user_token/:user_email",
-                get(auth::handler_refresh_user_token).with_state(state.clone()),
+                get(dev_only::refresh_user_token).with_state(state.clone()),
             )
-            .route("/dev/token", get(dev::dev_token))
+            .route(
+                "/dev/token",
+                get(dev_only::dev_token).with_state(state.clone()),
+            )
             .route(
                 "/dev/messages",
                 get(email::get_messages_by_ids).with_state(state.clone()),

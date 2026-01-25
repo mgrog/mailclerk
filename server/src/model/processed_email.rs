@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use sea_orm::{FromQueryResult, JoinType, QuerySelect};
+use sea_orm::{ConnectionTrait, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 
 use crate::{db_core::prelude::*, error::AppResult, prompt::task_extraction::ExtractedTask};
@@ -11,14 +11,15 @@ pub struct ProcessedEmailCtrl;
 pub struct FeedCursor {
     pub score: sea_orm::prelude::Decimal,
     pub history_id: sea_orm::prelude::Decimal,
+    /// Timestamp from the first request, used to keep priority scores stable across pages
+    pub ts: chrono::DateTime<chrono::Utc>,
 }
-
 /// Feed item containing a processed email with its computed priority score
 #[derive(Debug, Clone, FromQueryResult, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedEmail {
     pub id: String,
-    pub thread_id: String,
+    pub thread_id: Option<String>,
     pub user_id: i32,
     pub processed_at: chrono::DateTime<chrono::FixedOffset>,
     pub ai_answer: String,
@@ -30,7 +31,12 @@ pub struct FeedEmail {
     pub due_date: Option<chrono::NaiveDateTime>,
     pub tasks_done: bool,
     pub has_new_reply: bool,
-    pub priority: i32,
+    pub is_thread: bool,
+    pub from: Option<String>,
+    pub internal_date: i64,
+    pub snippet: Option<String>,
+    pub subject: Option<String>,
+    pub priority: Option<i32>,
     pub priority_score: Decimal,
 }
 
@@ -47,27 +53,33 @@ impl ProcessedEmailCtrl {
         Ok(processed_emails)
     }
 
-    // const PRIORITY_SCORE_SQL: &'static str = "processed.email.history_id";
-
-    const PRIORITY_SCORE_SQL: &'static str = "(\
+    /// Returns the SQL expression for calculating priority score.
+    /// Takes a timestamp string to use instead of NOW() for stable pagination.
+    /// Uses aliases: `pe` for processed_email, `uer` for user_email_rule subquery.
+    fn priority_score_sql(reference_time: &str) -> String {
+        format!(
+            "(\
+                CASE \
+                    WHEN pe.due_date IS NULL THEN 0 \
+                    WHEN pe.tasks_done = true THEN 0 \
+                    WHEN pe.due_date >= {ts} + INTERVAL '7 days' THEN -200 \
+                    WHEN pe.due_date >= {ts} THEN -200 + (EXTRACT(EPOCH FROM (pe.due_date - {ts})) / 86400) * 100 / 7 \
+                    WHEN pe.due_date >= {ts} - INTERVAL '7 days' THEN -300 \
+                    ELSE 0 \
+                END \
+            ) + \
             CASE \
-                WHEN processed_email.due_date IS NULL THEN 0 \
-                WHEN processed_email.tasks_done = true THEN 0 \
-                WHEN processed_email.due_date >= NOW() + INTERVAL '7 days' THEN -200 \
-                WHEN processed_email.due_date >= NOW() THEN -200 + (EXTRACT(EPOCH FROM (processed_email.due_date - NOW())) / 86400) * 100 / 7 \
-                WHEN processed_email.due_date >= NOW() - INTERVAL '7 days' THEN -300 \
+                WHEN pe.is_read = false THEN -10 \
                 ELSE 0 \
-            END \
-        ) + \
-        CASE \
-            WHEN processed_email.is_read = false THEN -10 \
-            ELSE 0 \
-        END + \
-        CASE \
-            WHEN processed_email.has_new_reply = true THEN -200 \
-            ELSE 0 \
-        END + \
-        COALESCE((4 - user_email_rule.priority) * 100, 200)";
+            END + \
+            CASE \
+                WHEN pe.has_new_reply = true THEN -200 \
+                ELSE 0 \
+            END + \
+            COALESCE((4 - uer.priority) * 100, 200)",
+            ts = reference_time,
+        )
+    }
 
     /// Get processed emails for a user sorted by weighted priority score with cursor pagination.
     ///
@@ -81,67 +93,81 @@ impl ProcessedEmailCtrl {
     /// - is_read = false: -10
     /// - has_new_reply = true: -200
     /// - user_email_rule.priority: +(4 - priority) * 100
+    ///
+    /// Returns (emails, reference_timestamp) where reference_timestamp should be used
+    /// when creating the cursor for the next page.
     pub async fn get_feed_by_user(
         conn: &DatabaseConnection,
         user_id: i32,
         limit: u64,
         cursor: Option<FeedCursor>,
-    ) -> AppResult<Vec<FeedEmail>> {
-        let priority_score_expr = Expr::cust(Self::PRIORITY_SCORE_SQL);
+    ) -> AppResult<(Vec<FeedEmail>, chrono::DateTime<chrono::Utc>)> {
+        // Use timestamp from cursor if available, otherwise use current time.
+        // This keeps priority scores stable across paginated requests.
+        let reference_time = cursor.as_ref().map(|c| c.ts).unwrap_or_else(Utc::now);
+        let reference_time_sql = format!("'{}'::timestamptz", reference_time.to_rfc3339());
+        let priority_score_sql = Self::priority_score_sql(&reference_time_sql);
 
-        let mut query = ProcessedEmail::find()
-            .filter(processed_email::Column::UserId.eq(user_id))
-            .join_rev(
-                JoinType::LeftJoin,
-                user_email_rule::Entity::belongs_to(processed_email::Entity)
-                    .from(user_email_rule::Column::MailLabel)
-                    .to(processed_email::Column::Category)
-                    .on_condition(move |_left, right| {
-                        Expr::col((right, user_email_rule::Column::UserId))
-                            .eq(user_id)
-                            .into_condition()
-                    })
-                    .into(),
-            )
-            .select_only()
-            .column(processed_email::Column::Id)
-            .column(processed_email::Column::ThreadId)
-            .column(processed_email::Column::UserId)
-            .column(processed_email::Column::ProcessedAt)
-            .column(processed_email::Column::AiAnswer)
-            .column(processed_email::Column::AiConfidence)
-            .column(processed_email::Column::Category)
-            .column(processed_email::Column::HistoryId)
-            .column(processed_email::Column::ExtractedTasks)
-            .column(processed_email::Column::IsRead)
-            .column(processed_email::Column::DueDate)
-            .column(processed_email::Column::TasksDone)
-            .column(processed_email::Column::HasNewReply)
-            .column(user_email_rule::Column::Priority)
-            .column_as(Expr::cust(Self::PRIORITY_SCORE_SQL), "priority_score");
+        let cursor_filter = cursor
+            .as_ref()
+            .map(|c| {
+                format!(
+                    "AND (({ps}) > {score} OR (({ps}) = {score} AND pe.history_id < {hid}))",
+                    ps = priority_score_sql,
+                    score = c.score,
+                    hid = c.history_id
+                )
+            })
+            .unwrap_or_default();
 
-        // Apply cursor filter: get rows after the cursor position
-        if let Some(cursor) = cursor {
-            let cursor_filter = Expr::cust(format!(
-                "(({}) > {} OR (({}) = {} AND processed_email.history_id < {}))",
-                Self::PRIORITY_SCORE_SQL,
-                cursor.score,
-                Self::PRIORITY_SCORE_SQL,
-                cursor.score,
-                cursor.history_id
-            ));
-            query = query.filter(cursor_filter);
-        }
+        let sql = format!(
+            r#"
+            SELECT
+                pe.id,
+                pe.thread_id,
+                pe.user_id,
+                pe.processed_at,
+                pe.ai_answer,
+                pe.ai_confidence,
+                pe.category,
+                pe.history_id,
+                array_to_json(pe.extracted_tasks) AS extracted_tasks,
+                pe.is_read,
+                pe.due_date,
+                pe.tasks_done,
+                pe.has_new_reply,
+                pe.is_thread,
+                pe."from",
+                pe.internal_date,
+                pe.snippet,
+                pe.subject,
+                uer.priority,
+                ({priority_score}) AS priority_score
+            FROM processed_email pe
+            LEFT JOIN (
+                SELECT DISTINCT ON (mail_label) mail_label, priority
+                FROM user_email_rule
+                WHERE user_id = $1
+                ORDER BY mail_label
+            ) uer ON uer.mail_label = pe.category
+            WHERE pe.user_id = $1
+            {cursor_filter}
+            ORDER BY priority_score ASC, pe.history_id DESC
+            LIMIT $2
+            "#,
+            priority_score = priority_score_sql,
+            cursor_filter = cursor_filter,
+        );
 
-        let rows: Vec<FeedEmail> = query
-            .order_by_asc(priority_score_expr)
-            .order_by_desc(processed_email::Column::HistoryId)
-            .limit(limit)
-            .into_model()
-            .all(conn)
-            .await?;
+        let rows: Vec<FeedEmail> = FeedEmail::find_by_statement(Statement::from_sql_and_values(
+            conn.get_database_backend(),
+            sql,
+            [user_id.into(), (limit as i64).into()],
+        ))
+        .all(conn)
+        .await?;
 
-        Ok(rows)
+        Ok((rows, reference_time))
     }
 
     /// Get total count of processed emails for a user (for pagination)

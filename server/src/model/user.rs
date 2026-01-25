@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::{
     db_core::prelude::*,
     error::{AppError, AppResult},
-    routes::auth::{self, AuthCallbackError},
+    routes::handlers::auth::{self, AuthCallbackError},
     server_config::cfg,
     HttpClient,
 };
@@ -60,6 +60,7 @@ impl UserCtrl {
             updated_at: ActiveValue::Set(now),
             setup_completed: ActiveValue::Set(false),
             last_updated_email_rules: ActiveValue::Set(now),
+            daily_token_limit: ActiveValue::Set(cfg.api.token_limits.daily_user_quota as i64),
         };
 
         let insert_result = User::insert(active_model).exec(conn).await;
@@ -147,6 +148,7 @@ impl UserCtrl {
             )
             .select_user_account_access_cols()
             .select_user_tokens_consumed()
+            .column(user::Column::DailyTokenLimit)
             .into_model::<UserWithAccountAccessAndUsage>()
             .one(conn)
             .await
@@ -193,7 +195,6 @@ impl UserCtrl {
         conn: &DatabaseConnection,
     ) -> AppResult<Vec<UserWithAccountAccessAndUsage>> {
         let today = chrono::Utc::now().date_naive();
-        let daily_quota = cfg.api.token_limits.daily_user_quota as i64;
 
         let raw_sql = r#"
             SELECT
@@ -210,7 +211,8 @@ impl UserCtrl {
                 uaa.expires_at,
                 uaa.needs_reauthentication,
                 COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
-                u.last_updated_email_rules
+                u.last_updated_email_rules,
+                u.daily_token_limit
             FROM
                 "user" AS u
             JOIN
@@ -219,7 +221,7 @@ impl UserCtrl {
                 "user_token_usage_stat" ON u.email = "user_token_usage_stat".user_email AND "user_token_usage_stat".date = $1::date
             WHERE
                 u.subscription_status = (CAST('ACTIVE' AS subscription_status))
-                AND ("user_token_usage_stat".tokens_consumed < $2 OR "user_token_usage_stat".tokens_consumed IS NULL)
+                AND (COALESCE("user_token_usage_stat".tokens_consumed, 0) < u.daily_token_limit)
                 AND uaa.needs_reauthentication = FALSE
         "#;
 
@@ -227,10 +229,7 @@ impl UserCtrl {
             UserWithAccountAccessAndUsage::find_by_statement(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 raw_sql,
-                [
-                    today.format("%Y-%m-%d").to_string().into(),
-                    daily_quota.into(),
-                ],
+                [today.format("%Y-%m-%d").to_string().into()],
             ))
             .all(conn)
             .await
@@ -249,6 +248,20 @@ impl UserCtrl {
             .context("Error fetching users with cancelled subscriptions")?;
 
         Ok(users)
+    }
+
+    pub async fn unlock_daily_limit(conn: &DatabaseConnection, user_id: i32) -> AppResult<()> {
+        User::update(user::ActiveModel {
+            id: ActiveValue::Set(user_id),
+            daily_token_limit: ActiveValue::Set(i64::MAX),
+            updated_at: ActiveValue::Set(chrono::Utc::now().into()),
+            ..Default::default()
+        })
+        .exec(conn)
+        .await
+        .context("Error unlocking daily limit")?;
+
+        Ok(())
     }
 }
 
@@ -354,6 +367,7 @@ pub struct UserWithAccountAccessAndUsage {
     pub expires_at: DateTimeWithTimeZone,
     pub tokens_consumed: i64,
     pub last_updated_email_rules: DateTimeWithTimeZone,
+    pub daily_token_limit: i64,
 }
 
 impl Id for UserWithAccountAccessAndUsage {

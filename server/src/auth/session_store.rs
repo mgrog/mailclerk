@@ -6,12 +6,15 @@ use std::{
 use chrono::Utc;
 use sea_orm::prelude::Uuid;
 
+use crate::routes::handlers::auth::CallerType;
+
 const SESSION_TTL: i64 = 30 * 60;
 
 #[derive(Debug, Clone)]
 pub struct AuthSession {
     pub expires_at: i64,
     pub token: Option<String>,
+    pub caller_type: Option<CallerType>,
 }
 
 impl AuthSession {
@@ -46,6 +49,7 @@ impl AuthSessionStore {
         let session = AuthSession {
             expires_at: Utc::now().timestamp() + SESSION_TTL,
             token: None,
+            caller_type: None,
         };
         self.inner.write().unwrap().insert(session_id, session);
     }
@@ -62,6 +66,18 @@ impl AuthSessionStore {
             .and_modify(|session| {
                 if !session.is_expired() {
                     session.token = Some(token);
+                }
+            });
+    }
+
+    pub fn add_caller_type_to_session(&self, session_id: Uuid, caller_type: CallerType) {
+        self.inner
+            .write()
+            .unwrap()
+            .entry(session_id)
+            .and_modify(|session| {
+                if !session.is_expired() {
+                    session.caller_type = Some(caller_type);
                 }
             });
     }

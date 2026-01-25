@@ -7,16 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     auth::jwt::Claims,
-    email::{
-        client::MessageFormat,
-        sanitized_message::SanitizedMessage,
-    },
     error::{AppError, AppJsonResult},
     model::processed_email::{FeedCursor, FeedEmail, ProcessedEmailCtrl},
     ServerState,
 };
-
-use super::shared::fetch_email_client;
 
 const DEFAULT_FEED_PAGE_SIZE: u64 = 20;
 const MAX_FEED_PAGE_SIZE: u64 = 100;
@@ -32,16 +26,8 @@ pub struct GetFeedQuery {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FeedResponseItem {
-    #[serde(flatten)]
-    pub feed_email: FeedEmail,
-    pub message: Option<SanitizedMessage>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct GetFeedResponse {
-    pub emails: Vec<FeedResponseItem>,
+    pub emails: Vec<FeedEmail>,
     /// Base64-encoded cursor for the next page, None if no more results
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -64,7 +50,6 @@ pub async fn get_feed(
     Query(query): Query<GetFeedQuery>,
 ) -> AppJsonResult<GetFeedResponse> {
     let user_id = claims.sub;
-    let user_email = claims.email;
     let limit = query
         .limit
         .unwrap_or(DEFAULT_FEED_PAGE_SIZE)
@@ -83,7 +68,7 @@ pub async fn get_feed(
         .transpose()?;
 
     // Fetch one extra to determine if there are more results
-    let emails =
+    let (emails, reference_time) =
         ProcessedEmailCtrl::get_feed_by_user(&state.conn, user_id, limit + 1, cursor).await?;
 
     let has_more = emails.len() > limit as usize;
@@ -93,32 +78,19 @@ pub async fn get_feed(
         emails
     };
 
-    // Generate next cursor from the last item
+    // Generate next cursor from the last item, preserving the reference timestamp
     let next_cursor = if has_more {
         emails.last().map(|email| {
             let cursor = FeedCursor {
                 score: email.priority_score,
                 history_id: email.history_id,
+                ts: reference_time,
             };
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap())
         })
     } else {
         None
     };
-
-    let email_ids: Vec<&str> = emails.iter().map(|e| e.id.as_str()).collect();
-    let email_client = fetch_email_client(state, user_email).await?;
-    let messages = email_client
-        .get_messages_by_ids(&email_ids, MessageFormat::Raw)
-        .await?;
-    let emails = emails
-        .into_iter()
-        .zip(messages)
-        .map(|(e, m)| FeedResponseItem {
-            feed_email: e,
-            message: SanitizedMessage::from_gmail_message(m).ok(),
-        })
-        .collect();
 
     Ok(Json(GetFeedResponse {
         emails,

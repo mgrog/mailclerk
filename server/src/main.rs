@@ -31,7 +31,6 @@ use std::{
 use auth::session_store::AuthSessionStore;
 use axum::{extract::FromRef, routing::get, Router};
 use db_core::prelude::*;
-use futures::future::join_all;
 use mimalloc::MiMalloc;
 use prompt::TaskQueue;
 use rate_limiters::RateLimiters;
@@ -66,7 +65,6 @@ struct ServerState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // env::set_var("RUST_LOG", "debug");
     dotenvy::dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
     let mut db_options = ConnectOptions::new(db_url);
@@ -106,18 +104,15 @@ async fn main() -> anyhow::Result<()> {
     };
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_env("RUST_LOG"))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .with(tracing_subscriber::fmt::Layer::default().with_ansi(false))
         .init();
 
     let router = AppRouter::create(state.clone());
     let email_processing_map = ActiveEmailProcessorMap::new(state.clone());
-
-    let processing_watch_handle = state::tasks::watch(
-        state.task_queue.clone(),
-        email_processing_map.clone(),
-        state.rate_limiters.clone(),
-    );
 
     let mut scheduler = JobScheduler::new()
         .await
@@ -226,8 +221,6 @@ async fn main() -> anyhow::Result<()> {
             .await?;
     }
 
-    scheduler.shutdown_on_ctrl_c();
-
     scheduler.set_shutdown_handler(Box::new(move || {
         Box::pin(async move {
             tracing::info!("Shutting down scheduler");
@@ -237,44 +230,57 @@ async fn main() -> anyhow::Result<()> {
     let scanner_only = env::var("SCANNER_ONLY").is_ok_and(|v| v == "true");
     let server_only = env::var("SERVER_ONLY").is_ok_and(|v| v == "true");
 
+    println!(
+        "SCANNER_ONLY={:?}, SERVER_ONLY={:?}",
+        env::var("SCANNER_ONLY"),
+        env::var("SERVER_ONLY")
+    );
+
     if server_only {
-        tracing::info!("-------- RUNNING SERVER ONLY --------");
-        // Handle Ctrl+C
-        join_all([run_server(router, scheduler)]).await;
+        println!("-------- RUNNING SERVER ONLY --------");
+        run_server(router, scheduler).await.unwrap();
         return Ok(());
     }
 
+    println!("Starting scheduler...");
     match scheduler.start().await {
         Ok(_) => {
-            tracing::info!("Scheduler started");
+            println!("-------- SCHEDULER STARTED --------");
         }
         Err(e) => {
-            tracing::error!("Failed to start scheduler: {:?}", e);
+            println!("Failed to start scheduler: {:?}", e);
         }
     }
 
+    println!("Creating processing watch handle...");
+    let processing_watch_handle = state::tasks::watch(
+        state.task_queue.clone(),
+        email_processing_map.clone(),
+        state.rate_limiters.clone(),
+    );
     if scanner_only {
-        tracing::info!("-------- RUNNING SCANNER ONLY --------");
+        println!("-------- RUNNING SCANNER ONLY --------");
         let health_router = Router::new().route("/", get(|| async { "OK" }));
-        for join in join_all(vec![
-            run_server(health_router, scheduler),
-            processing_watch_handle,
-        ])
-        .await
-        {
-            join.unwrap();
+        let server_handle = run_server(health_router, scheduler);
+        tokio::select! {
+            _ = server_handle => {
+                tracing::info!("Server shut down, exiting");
+            }
+            _ = processing_watch_handle => {
+                tracing::info!("Processing watch ended");
+            }
         }
         return Ok(());
     }
 
-    for join in join_all(vec![
-        run_server(router, scheduler),
-        // inbox_subscription_handle,
-        processing_watch_handle,
-    ])
-    .await
-    {
-        join.unwrap();
+    let server_handle = run_server(router, scheduler);
+    tokio::select! {
+        _ = server_handle => {
+            tracing::info!("Server shut down, exiting");
+        }
+        _ = processing_watch_handle => {
+            tracing::info!("Processing watch ended");
+        }
     }
 
     Ok(())

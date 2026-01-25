@@ -18,6 +18,7 @@ pub struct Model {
     pub updated_at: DateTimeWithTimeZone,
     pub setup_completed: bool,
     pub last_updated_email_rules: DateTimeWithTimeZone,
+    pub daily_token_limit: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

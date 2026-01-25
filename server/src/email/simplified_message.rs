@@ -47,15 +47,17 @@ pub struct SimplifiedMessage {
     pub from: Option<String>,
     pub subject: Option<String>,
     pub body: Option<String>,
+    pub snippet: Option<String>,
 }
 
 impl SimplifiedMessage {
-    pub fn from_gmail_message(msg: google_gmail1::api::Message) -> anyhow::Result<Self> {
+    pub fn from_gmail_message(msg: &google_gmail1::api::Message) -> anyhow::Result<Self> {
         let id = msg.clone().id.unwrap_or_default();
         let label_ids = msg.clone().label_ids.unwrap_or_default();
         let thread_id = msg.thread_id.clone().unwrap_or_default();
         let history_id = msg.history_id.unwrap_or_default();
         let internal_date = msg.internal_date.unwrap_or_default();
+        let snippet = msg.snippet.clone();
         msg.raw
             .as_ref()
             .map(|input| {
@@ -75,6 +77,7 @@ impl SimplifiedMessage {
                     internal_date,
                     subject,
                     body,
+                    snippet,
                 }
             })
             .context(format!(
@@ -236,7 +239,7 @@ mod tests {
         let message = serde_json::from_str::<Message>(&json).expect("Unable to parse json");
 
         let parsed =
-            SimplifiedMessage::from_gmail_message(message).expect("Unable to parse message");
+            SimplifiedMessage::from_gmail_message(&message).expect("Unable to parse message");
 
         dbg!(&parsed);
 

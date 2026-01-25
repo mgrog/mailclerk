@@ -44,8 +44,6 @@ use crate::email::rules::{EmailRule, HEURISTIC_EMAIL_RULES};
 use crate::embed::should_embed_email;
 
 lazy_static::lazy_static!(
-    static ref DAILY_QUOTA: i64 = cfg.api.token_limits.daily_user_quota as i64;
-    static ref LOW_PRIORITY_CUTOFF: i64 = *DAILY_QUOTA / 2;
     static ref UNKNOWN_RULE: EmailRule = EmailRule {
             prompt_content: "Unknown".to_string(),
             mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
@@ -62,6 +60,7 @@ pub struct EmailProcessor {
     pub user_account_access_id: i32,
     pub email_address: String,
     pub created_at: chrono::DateTime<Utc>,
+    daily_token_limit: i64,
     processed_email_count: Arc<AtomicI64>,
     failed_email_count: Arc<AtomicI64>,
     email_client: Arc<EmailClient>,
@@ -86,6 +85,7 @@ impl EmailProcessor {
         let user_account_access_id = user.user_account_access_id;
         let email_address = user.email.clone();
         let quota_used = user.tokens_consumed;
+        let daily_token_limit = user.daily_token_limit;
         let conn = server_state.conn.clone();
         let http_client = server_state.http_client.clone();
         let rate_limiters = server_state.rate_limiters.clone();
@@ -116,6 +116,7 @@ impl EmailProcessor {
             user_account_access_id,
             email_address,
             created_at: chrono::Utc::now(),
+            daily_token_limit,
             processed_email_count: Arc::new(AtomicI64::new(0)),
             failed_email_count: Arc::new(AtomicI64::new(0)),
             email_client: Arc::new(email_client),
@@ -424,8 +425,10 @@ impl EmailProcessor {
 
     async fn record_processed_email(
         &self,
-        email_message: &SimplifiedMessage,
-        data: EmailProcessingData,
+        ProcessedEmailRecordData {
+            email_message,
+            ai_data: data,
+        }: ProcessedEmailRecordData,
     ) -> anyhow::Result<()> {
         let closest_due_data = data
             .extracted_tasks
@@ -449,19 +452,22 @@ impl EmailProcessor {
         };
 
         // Check thread status: unread replies, user replies, and if it's a thread
-        let (has_new_reply, user_has_replied, is_thread) = self
-            .check_thread_status(&email_message.thread_id, &email_message.id)
-            .await
-            .unwrap_or((false, false, false));
+        let (has_new_reply, user_has_replied, is_thread) = match &email_message.thread_id {
+            Some(thread_id) => self
+                .check_thread_status(thread_id, &email_message.id)
+                .await
+                .unwrap_or((false, false, false)),
+            None => (false, false, false),
+        };
 
         match ProcessedEmailCtrl::insert(
             &self.conn,
             processed_email::ActiveModel {
                 id: ActiveValue::Set(email_message.id.clone()),
-                thread_id: ActiveValue::Set(email_message.thread_id.clone()),
+                thread_id: ActiveValue::Set(email_message.thread_id),
                 user_id: ActiveValue::Set(self.user_id),
-                category: ActiveValue::Set(data.prompt_return_data.email_rule.mail_label.clone()),
-                ai_answer: ActiveValue::Set(data.prompt_return_data.ai_answer.clone()),
+                category: ActiveValue::Set(data.prompt_return_data.email_rule.mail_label),
+                ai_answer: ActiveValue::Set(data.prompt_return_data.ai_answer),
                 ai_confidence: ActiveValue::Set(data.prompt_return_data.ai_confidence.to_string()),
                 processed_at: ActiveValue::NotSet,
                 due_date: ActiveValue::Set(closest_due_data),
@@ -471,6 +477,10 @@ impl EmailProcessor {
                 tasks_done: ActiveValue::Set(false),
                 has_new_reply: ActiveValue::Set(has_new_reply && user_has_replied),
                 is_thread: ActiveValue::Set(is_thread),
+                from: ActiveValue::Set(email_message.from),
+                subject: ActiveValue::Set(email_message.subject),
+                snippet: ActiveValue::Set(email_message.snippet),
+                internal_date: ActiveValue::Set(email_message.internal_date),
             },
         )
         .await
@@ -492,14 +502,18 @@ impl EmailProcessor {
     async fn run_processor_pipeline(&self, email_id: String) -> anyhow::Result<()> {
         let email_message = self
             .email_client
-            .get_simplified_message(&email_id)
+            .get_message_by_id(&email_id)
             .await
             .context("Failed to fetch email")?;
+        let simplified = SimplifiedMessage::from_gmail_message(&email_message).context(format!(
+            "Failed to simplify email: {}, user: {}",
+            email_id, self.user_id
+        ))?;
 
         // Estimate token usage and check against remaining quota (allow up to 1% over)
-        let email_text = email_message.to_string();
+        let email_text = simplified.to_string();
         let estimated_tokens = tokenizer::token_count(&email_text).unwrap_or(0) as i64;
-        let quota_buffer = *DAILY_QUOTA / 100; // 1% buffer
+        let quota_buffer = self.daily_token_limit / 100; // 1% buffer
         if estimated_tokens > self.quota_remaining() + quota_buffer {
             tracing::info!(
                 "Estimated token usage ({}) exceeds remaining quota ({}) by more than 1% for {}. Cancelling processor.",
@@ -513,33 +527,18 @@ impl EmailProcessor {
 
         self.rate_limiters.acquire_one().await;
 
-        let result = self.parse_and_prompt_email(&email_message).await?;
+        let prompt_return_data = self.parse_and_prompt_email(&simplified).await?;
 
-        if cfg.settings.training_mode {
-            match self
-                .record_email_for_training(&email_message, &result)
-                .await
-            {
-                Ok(_) => {
-                    tracing::debug!("Recorded message {} for training", email_message.id);
-                }
-                Err(e) => {
-                    // This is a non-critical error, so we log it and continue
-                    tracing::error!("Error recording email for training: {:?}", e);
-                }
-            };
-        };
-
-        let mut token_usage = result.token_usage;
+        let mut token_usage = prompt_return_data.token_usage;
         let mut extracted_tasks = Vec::new();
 
         // Extract tasks if the matched rule has extract_tasks enabled
-        if result.email_rule.extract_tasks {
+        if prompt_return_data.email_rule.extract_tasks {
             self.rate_limiters.acquire_one().await;
             match task_extraction::extract_tasks_from_email(
                 &self.http_client,
                 &self.rate_limiters,
-                &email_message,
+                &simplified,
             )
             .await
             {
@@ -554,33 +553,33 @@ impl EmailProcessor {
         }
 
         // Queue embedding task for batch processing (deferred, Background priority)
-        if should_embed_email(result.email_rule.priority) {
-            let chunks = chunk_email(&email_message);
+        if should_embed_email(prompt_return_data.email_rule.priority) {
+            let chunks = chunk_email(&simplified);
 
             let entry = QueueEntry {
                 user_email: self.email_address.clone(),
                 user_id: self.user_id,
-                email_id: email_message.id.clone(),
+                email_id: simplified.id.clone(),
                 priority: Priority::Background,
                 task: TaskData::Embedding { chunks },
             };
             if self.task_queue.push(entry) {
                 tracing::debug!(
                     "Queued embedding task for email {} (label: {})",
-                    email_message.id,
-                    result.email_rule.mail_label
+                    simplified.id,
+                    prompt_return_data.email_rule.mail_label
                 );
             }
         }
 
         match self
-            .record_processed_email(
-                &email_message,
-                EmailProcessingData {
-                    prompt_return_data: result,
+            .record_processed_email(ProcessedEmailRecordData {
+                email_message: EmailData::from_message(email_message, simplified)?,
+                ai_data: AiEmailData {
+                    prompt_return_data,
                     extracted_tasks,
                 },
-            )
+            })
             .await
         {
             Ok(_) => {
@@ -602,7 +601,8 @@ impl EmailProcessor {
             return;
         }
 
-        if self.current_token_usage() > *LOW_PRIORITY_CUTOFF && priority == Priority::Low {
+        let low_priority_cutoff = self.daily_token_limit / 2;
+        if self.current_token_usage() > low_priority_cutoff && priority == Priority::Low {
             // Do not process low priority emails if quota is almost reached
             return;
         }
@@ -649,7 +649,7 @@ impl EmailProcessor {
     }
 
     pub fn is_quota_reached(&self) -> bool {
-        let result = self.token_count.load(Relaxed) >= *DAILY_QUOTA;
+        let result = self.token_count.load(Relaxed) >= self.daily_token_limit;
         if result {
             let (tx, _) = &self.interrupt_channel;
             tx.send(InterruptSignal::Quota).unwrap();
@@ -658,7 +658,7 @@ impl EmailProcessor {
     }
 
     pub fn quota_remaining(&self) -> i64 {
-        *DAILY_QUOTA - self.current_token_usage()
+        self.daily_token_limit - self.current_token_usage()
     }
 
     pub fn current_token_usage(&self) -> i64 {
@@ -726,7 +726,7 @@ impl EmailProcessor {
             hp_emails: queue_count.high,
             lp_emails: queue_count.low,
             tokens_consumed: self.current_token_usage(),
-            quota_remaining: *DAILY_QUOTA - self.current_token_usage(),
+            quota_remaining: self.daily_token_limit - self.current_token_usage(),
         }
     }
 }
@@ -777,7 +777,45 @@ pub struct PromptReturnData {
 }
 
 #[derive(Debug)]
-pub struct EmailProcessingData {
+pub struct AiEmailData {
     pub prompt_return_data: PromptReturnData,
     pub extracted_tasks: Vec<ExtractedTask>,
+}
+
+#[derive(Debug)]
+pub struct EmailData {
+    pub id: String,
+    pub label_ids: Vec<String>,
+    pub thread_id: Option<String>,
+    pub history_id: u64,
+    pub internal_date: i64,
+    pub from: Option<String>,
+    pub subject: Option<String>,
+    pub snippet: Option<String>,
+}
+
+impl EmailData {
+    pub fn from_message(
+        msg: google_gmail1::api::Message,
+        simplified: SimplifiedMessage,
+    ) -> anyhow::Result<Self> {
+        let id = msg.id.ok_or_else(|| anyhow!("Missing email id"))?;
+
+        Ok(Self {
+            id,
+            label_ids: msg.label_ids.unwrap_or_default(),
+            thread_id: msg.thread_id,
+            history_id: msg.history_id.unwrap_or_default(),
+            internal_date: msg.internal_date.unwrap_or_default(),
+            from: simplified.from,
+            subject: simplified.subject,
+            snippet: msg.snippet,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ProcessedEmailRecordData {
+    pub email_message: EmailData,
+    pub ai_data: AiEmailData,
 }

@@ -10,7 +10,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use serde_json::json;
 use sqlx::error::DatabaseError;
 
-use crate::{auth::jwt::AuthError, db_core::prelude::*, routes::auth::AuthCallbackError};
+use crate::{auth::jwt::AuthError, db_core::prelude::*, routes::handlers::auth::AuthCallbackError};
 
 pub type AppResult<T> = Result<T, AppError>;
 pub type AppJsonResult<T> = AppResult<Json<T>>;

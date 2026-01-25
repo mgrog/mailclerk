@@ -1,8 +1,6 @@
-use chrono::{DateTime, FixedOffset};
-use entity::sea_orm_active_enums::SubscriptionStatus;
 use serde::{Deserialize, Serialize};
 
-use crate::routes::account_connection::GmailAccountConnectionStatus;
+use crate::routes::handlers::account_connection::GmailAccountConnectionStatus;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GmailApiTokenResponse {

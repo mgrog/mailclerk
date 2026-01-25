@@ -20,8 +20,15 @@ pub struct Model {
     pub tasks_done: bool,
     pub has_new_reply: bool,
     pub ai_confidence: String,
-    pub thread_id: String,
+    pub thread_id: Option<String>,
     pub is_thread: bool,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub from: Option<String>,
+    pub internal_date: i64,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub snippet: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub subject: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

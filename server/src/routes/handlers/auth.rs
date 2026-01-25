@@ -9,7 +9,7 @@ use crate::{
     model::user::{AccountAccess, UserAccessCtrl, UserCtrl},
 };
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     response::{IntoResponse, Redirect},
     Json,
 };
@@ -17,7 +17,7 @@ use chrono::DateTime;
 use derive_more::derive::Display;
 use entity::user_account_access::Column::*;
 use sea_orm::TryInsertResult;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use url::Url;
 
@@ -33,7 +33,7 @@ use lib_utils::crypt;
 const CONFIRM_CONNECTION_PATH: &str = "confirm-connection";
 const SIGN_IN_PATH: &str = "sign-in";
 
-fn _get_auth_uri(session_store: &AuthSessionStore) -> String {
+fn _get_auth_uri(session_store: &AuthSessionStore, caller_type: CallerType) -> String {
     let GmailConfig {
         auth_uri,
         client_id,
@@ -42,8 +42,10 @@ fn _get_auth_uri(session_store: &AuthSessionStore) -> String {
         ..
     } = &cfg.gmail_config;
 
-    let uuid = Uuid::new_v4();
-    session_store.store_session(uuid);
+    let session_id = Uuid::new_v4();
+    session_store.store_session(session_id);
+
+    let oauth_state = OAuthState::new(session_id, caller_type);
 
     let mut url = Url::parse(auth_uri.as_str()).unwrap();
     url.query_pairs_mut().extend_pairs(&[
@@ -53,31 +55,75 @@ fn _get_auth_uri(session_store: &AuthSessionStore) -> String {
         ("scope", scopes.join(" ").as_str()),
         ("access_type", "offline"),
         ("prompt", "select_account"),
-        ("state", &uuid.to_string()),
+        ("state", &oauth_state.encode()),
     ]);
 
     url.to_string()
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallerType {
+    Web,
+    Native,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthState {
+    pub session_id: Uuid,
+    pub caller_type: CallerType,
+}
+
+impl OAuthState {
+    pub fn new(session_id: Uuid, caller_type: CallerType) -> Self {
+        Self {
+            session_id,
+            caller_type,
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let json = serde_json::to_string(self).expect("Failed to serialize OAuthState");
+        URL_SAFE_NO_PAD.encode(json.as_bytes())
+    }
+
+    pub fn decode(encoded: &str) -> Result<Self, ()> {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let bytes = URL_SAFE_NO_PAD.decode(encoded).map_err(|_| ())?;
+        let json = String::from_utf8(bytes).map_err(|_| ())?;
+        serde_json::from_str(&json).map_err(|_| ())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthOptions {
+    caller_type: CallerType,
+}
+
 pub async fn handler_auth_gmail(
     State(http_client): State<HttpClient>,
     State(session_store): State<AuthSessionStore>,
+    Query(options): Query<AuthOptions>,
 ) -> AppResult<impl IntoResponse> {
-    let req = http_client.get(_get_auth_uri(&session_store)).build()?;
+    let req = http_client
+        .get(_get_auth_uri(&session_store, options.caller_type))
+        .build()?;
 
     Ok(Redirect::to(req.url().as_str()))
 }
 
-fn _redirect_to_confirm_connection(session_id: Uuid) -> Redirect {
-    let mut url = get_redirect_url(RedirectType::ConfirmConnection);
+fn _redirect_to_confirm_connection(session_id: Uuid, caller_type: &CallerType) -> Redirect {
+    let mut url = get_redirect_url(RedirectType::ConfirmConnection, caller_type);
     url.query_pairs_mut()
         .append_pair("session", session_id.to_string().as_str());
 
     Redirect::to(url.as_str())
 }
 
-fn _redirect_to_sign_in(session_id: Uuid) -> Redirect {
-    let mut url = get_redirect_url(RedirectType::Signin);
+fn _redirect_to_sign_in(session_id: Uuid, caller_type: &CallerType) -> Redirect {
+    let mut url = get_redirect_url(RedirectType::Signin, caller_type);
     url.query_pairs_mut()
         .append_pair("session", session_id.to_string().as_str());
 
@@ -110,10 +156,15 @@ pub async fn handler_auth_gmail_callback(
     } = &cfg.gmail_config;
 
     if query.code.is_none() || query.state.is_none() {
-        return Ok(Redirect::to(&_get_auth_uri(&state.session_store)).into_response());
+        return Ok(
+            Redirect::to(&_get_auth_uri(&state.session_store, CallerType::Web)).into_response(),
+        );
     }
-    let session_id = Uuid::parse_str(query.state.unwrap().as_str())
+
+    let oauth_state = OAuthState::decode(query.state.as_ref().unwrap())
         .map_err(|_| AuthCallbackError::InvalidState)?;
+    let session_id = oauth_state.session_id;
+    let caller_type = oauth_state.caller_type;
 
     if state.session_store.load_session(session_id).is_none() {
         return Err(AuthCallbackError::InvalidState);
@@ -184,7 +235,9 @@ pub async fn handler_auth_gmail_callback(
                         tracing::error!("Error updating account access: {:?}", e);
                         AuthCallbackError::Unexpected(e.to_string())
                     })?;
-                return Ok(_redirect_to_confirm_connection(session_id).into_response());
+                return Ok(
+                    _redirect_to_confirm_connection(session_id, &caller_type).into_response()
+                );
             }
             _ if user.access_is_expired() => {
                 UserAccessCtrl::get_refreshed_token(&state.http_client, &state.conn, &mut user)
@@ -194,10 +247,10 @@ pub async fn handler_auth_gmail_callback(
                         _ => AuthCallbackError::Unexpected(e.to_string()),
                     })?;
 
-                return Ok(_redirect_to_sign_in(session_id).into_response());
+                return Ok(_redirect_to_sign_in(session_id, &caller_type).into_response());
             }
             _ => {
-                return Ok(_redirect_to_sign_in(session_id).into_response());
+                return Ok(_redirect_to_sign_in(session_id, &caller_type).into_response());
             }
         }
     }
@@ -252,11 +305,7 @@ pub async fn handler_auth_gmail_callback(
 
     match user_account_access_insert_result {
         TryInsertResult::Inserted(_) | TryInsertResult::Conflicted => {
-            let mut url = get_redirect_url(RedirectType::ConfirmConnection);
-            url.query_pairs_mut()
-                .append_pair("session", session_id.to_string().as_str());
-
-            Ok(Redirect::to(url.as_str()).into_response())
+            Ok(_redirect_to_confirm_connection(session_id, &caller_type).into_response())
         }
         _ => {
             tracing::error!("Unexpected result from user account access insert");
@@ -297,19 +346,6 @@ pub async fn handler_me(
 ) -> AppJsonResult<user::Model> {
     let user = UserCtrl::get_by_id(&conn, claims.sub).await?;
     Ok(Json(user))
-}
-
-pub async fn handler_refresh_user_token(
-    user_email: Path<String>,
-    State(http_client): State<HttpClient>,
-    State(conn): State<DatabaseConnection>,
-) -> AppJsonResult<serde_json::Value> {
-    let mut user = UserCtrl::get_with_account_access_by_email(&conn, user_email.as_str()).await?;
-    UserAccessCtrl::get_refreshed_token(&http_client, &conn, &mut user).await?;
-
-    Ok(Json(json!({
-        "message": "Token refreshed"
-    })))
 }
 
 pub async fn exchange_refresh_token(
@@ -368,15 +404,26 @@ pub async fn exchange_refresh_token(
     Ok(resp)
 }
 
+const NATIVE_DEEPLINK_SCHEME: &str = "mailclerk://";
+
 enum RedirectType {
     ConfirmConnection,
     Signin,
 }
 
-fn get_redirect_url(redirect_type: RedirectType) -> Url {
-    match redirect_type {
-        RedirectType::Signin => cfg.frontend.get_signin_url(),
-        RedirectType::ConfirmConnection => cfg.frontend.get_confirm_url(),
+fn get_redirect_url(redirect_type: RedirectType, caller_type: &CallerType) -> Url {
+    match caller_type {
+        CallerType::Web => match redirect_type {
+            RedirectType::Signin => cfg.frontend.get_signin_url(),
+            RedirectType::ConfirmConnection => cfg.frontend.get_confirm_url(),
+        },
+        CallerType::Native => {
+            let path = match redirect_type {
+                RedirectType::Signin => SIGN_IN_PATH,
+                RedirectType::ConfirmConnection => CONFIRM_CONNECTION_PATH,
+            };
+            Url::parse(&format!("{}{}", NATIVE_DEEPLINK_SCHEME, path)).unwrap()
+        }
     }
 }
 
@@ -395,7 +442,8 @@ pub type OauthResult<T> = Result<T, AuthCallbackError>;
 
 impl IntoResponse for AuthCallbackError {
     fn into_response(self) -> axum::response::Response {
-        let mut url = get_redirect_url(RedirectType::ConfirmConnection);
+        // Default to Web for errors since we may not have caller_type available
+        let mut url = get_redirect_url(RedirectType::ConfirmConnection, &CallerType::Web);
 
         match self {
             AuthCallbackError::InvalidState => {
