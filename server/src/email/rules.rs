@@ -1,8 +1,21 @@
-use crate::{db_core::prelude::*, model::user_email_rule::UserEmailRuleCtrl};
+use crate::{db_core::prelude::*, model::labels::UtilityLabels, model::user_email_rule::UserEmailRuleCtrl};
 use anyhow::Context;
 use lazy_static::lazy_static;
 
 lazy_static! {
+    /// The default rule used when no category matches or confidence is too low
+    pub static ref UNKNOWN_RULE: EmailRule = EmailRule {
+        prompt_content: "Unknown".to_string(),
+        mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
+        extract_tasks: true,
+        priority: 2,
+    };
+    /// Categories that should not fall back to unknown even with low confidence
+    pub static ref EXCEPTION_RULES: &'static [&'static str] = &[
+        "Terms of Service Update",
+        "Verification Code",
+        "Security Alert"
+    ];
     static ref DEFAULT_EMAIL_RULES: Vec<EmailRule> = {
         use crate::server_config::cfg;
         let categories = &cfg.categories;

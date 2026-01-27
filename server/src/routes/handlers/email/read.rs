@@ -96,6 +96,28 @@ pub struct GetAllEmailsResponse {
     pub has_more: bool,
 }
 
+/// # GET /email/:id
+///
+/// Returns a single email message by ID as a SanitizedMessage
+pub async fn get_sanitized_message(
+    claims: Claims,
+    State(state): State<ServerState>,
+    Path(id): Path<String>,
+) -> AppJsonResult<SanitizedMessage> {
+    let email_client = fetch_email_client(state, claims.email).await?;
+    let messages = email_client
+        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw)
+        .await?;
+
+    let message = messages
+        .into_iter()
+        .filter_map(|m| SanitizedMessage::from_gmail_message(m).ok())
+        .next()
+        .ok_or_else(|| AppError::NotFound("Message not found".into()))?;
+
+    Ok(Json(message))
+}
+
 /// # GET /email
 ///
 /// Query parameters:

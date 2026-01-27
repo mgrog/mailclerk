@@ -22,6 +22,10 @@ path = "src/bin/tokenize.rs"
 name = "cosine-similarity"
 path = "src/bin/cosine_similarity.rs"
 
+[[bin]]
+name = "gen-entity"
+path = "src/bin/gen_entity.rs"
+
 [dependencies]
 # -- App Crates
 lib-utils = { path = "../libs/lib-utils" }

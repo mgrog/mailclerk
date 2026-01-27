@@ -22,36 +22,59 @@ use crate::{
         rules::UserEmailRules,
         simplified_message::SimplifiedMessage,
     },
-    embed::chunker::chunk_email,
-    prompt::task_extraction::ExtractedTask,
+    state::email_scanner::shared::{EmailScanData, ProcessedEmailData, PromptReturnData},
 };
 use crate::{
     error::{extract_database_error_code, AppError, AppResult, DatabaseErrorCode},
     model::{
-        labels::UtilityLabels, processed_email::ProcessedEmailCtrl,
-        user::UserWithAccountAccessAndUsage, user_token_usage::UserTokenUsageStatsCtrl,
+        processed_email::ProcessedEmailCtrl, user::UserWithAccountAccessAndUsage,
+        user_token_usage::UserTokenUsageStatsCtrl,
     },
     prompt::{
         mistral::{self, CategoryPromptResponse},
         task_extraction, Priority, QueueEntry, TaskData, TaskQueue,
     },
     rate_limiters::RateLimiters,
-    server_config::cfg,
     HttpClient, ServerState,
 };
 
-use crate::email::rules::{EmailRule, HEURISTIC_EMAIL_RULES};
-use crate::embed::should_embed_email;
+use super::shared::find_matching_rule;
 
-lazy_static::lazy_static!(
-    static ref UNKNOWN_RULE: EmailRule = EmailRule {
-            prompt_content: "Unknown".to_string(),
-            mail_label: UtilityLabels::Uncategorized.as_str().to_string(),
-            extract_tasks: true,
-            priority: 2,
-        };
-    static ref EXCEPTION_RULES: &'static [&'static str] = &["Terms of Service Update", "Verification Code", "Security Alert"];
-);
+#[derive(Debug, Clone, Default)]
+struct FetchOptions {
+    more_recent_than: Option<chrono::Duration>,
+    categories: Option<Vec<String>>,
+}
+
+#[derive(Display, Debug)]
+pub enum ProcessorStatus {
+    ProcessingHP,
+    ProcessingLP,
+    Queueing,
+    Cancelled,
+    QuotaExceeded,
+    Failed,
+}
+
+enum InterruptSignal {
+    Run,
+    Cancel,
+    Quota,
+    Fail,
+}
+
+#[derive(Debug)]
+pub struct EmailProcessorStatusUpdate {
+    pub status: ProcessorStatus,
+    pub emails_processed: i64,
+    pub emails_failed: i64,
+    pub emails_remaining: i64,
+    pub total_emails: usize,
+    pub hp_emails: usize,
+    pub lp_emails: usize,
+    pub tokens_consumed: i64,
+    pub quota_remaining: i64,
+}
 
 #[derive(Clone)]
 /// EmailProcessor processes emails for a single user
@@ -299,34 +322,15 @@ impl EmailProcessor {
         .await
         .map_err(|e| anyhow!("Error sending prompt: {e}"))?;
 
-        let mut selected_email_rule = self
-            .user_email_rules
-            .data()
-            .iter()
-            .find(|c| c.prompt_content.eq_ignore_ascii_case(&ai_answer))
-            .unwrap_or(&UNKNOWN_RULE);
-
-        let mut heuristics_used = false;
-        if let Some(from) = email_message.from.as_deref() {
-            if confidence < cfg.model.email_confidence_threshold
-                && !EXCEPTION_RULES.contains(&selected_email_rule.prompt_content.as_str())
-            {
-                if let Some(rule) = HEURISTIC_EMAIL_RULES
-                    .iter()
-                    .find(|c| from.contains(&c.prompt_content))
-                {
-                    selected_email_rule = rule;
-                    heuristics_used = true;
-                }
-            }
-        }
-
-        if confidence < cfg.model.email_confidence_threshold && !heuristics_used {
-            selected_email_rule = &UNKNOWN_RULE;
-        }
+        let (matching_rule, heuristics_used) = find_matching_rule(
+            &ai_answer,
+            confidence,
+            &self.user_email_rules,
+            email_message.from.as_ref(),
+        );
 
         Ok(PromptReturnData {
-            email_rule: selected_email_rule.clone(),
+            email_rule: matching_rule,
             ai_answer,
             ai_confidence: confidence,
             heuristics_used,
@@ -423,13 +427,7 @@ impl EmailProcessor {
         Ok((has_unread_reply, user_has_replied, is_thread))
     }
 
-    async fn record_processed_email(
-        &self,
-        ProcessedEmailRecordData {
-            email_message,
-            ai_data: data,
-        }: ProcessedEmailRecordData,
-    ) -> anyhow::Result<()> {
+    async fn record_processed_email(&self, data: ProcessedEmailData) -> anyhow::Result<()> {
         let closest_due_data = data
             .extracted_tasks
             .iter()
@@ -452,9 +450,9 @@ impl EmailProcessor {
         };
 
         // Check thread status: unread replies, user replies, and if it's a thread
-        let (has_new_reply, user_has_replied, is_thread) = match &email_message.thread_id {
+        let (has_new_reply, user_has_replied, is_thread) = match &data.email_data.thread_id {
             Some(thread_id) => self
-                .check_thread_status(thread_id, &email_message.id)
+                .check_thread_status(thread_id, &data.email_data.id)
                 .await
                 .unwrap_or((false, false, false)),
             None => (false, false, false),
@@ -463,24 +461,26 @@ impl EmailProcessor {
         match ProcessedEmailCtrl::insert(
             &self.conn,
             processed_email::ActiveModel {
-                id: ActiveValue::Set(email_message.id.clone()),
-                thread_id: ActiveValue::Set(email_message.thread_id),
+                id: ActiveValue::Set(data.email_data.id.clone()),
+                thread_id: ActiveValue::Set(data.email_data.thread_id),
                 user_id: ActiveValue::Set(self.user_id),
-                category: ActiveValue::Set(data.prompt_return_data.email_rule.mail_label),
-                ai_answer: ActiveValue::Set(data.prompt_return_data.ai_answer),
-                ai_confidence: ActiveValue::Set(data.prompt_return_data.ai_confidence.to_string()),
+                category: ActiveValue::Set(data.category),
+                ai_answer: ActiveValue::Set(data.ai_answer),
+                ai_confidence: ActiveValue::Set(data.ai_confidence.to_string()),
                 processed_at: ActiveValue::NotSet,
                 due_date: ActiveValue::Set(closest_due_data),
                 extracted_tasks,
-                history_id: ActiveValue::Set(Decimal::from(email_message.history_id)),
-                is_read: ActiveValue::Set(!email_message.label_ids.contains(&"UNREAD".to_string())),
+                history_id: ActiveValue::Set(Decimal::from(data.email_data.history_id)),
+                is_read: ActiveValue::Set(
+                    !data.email_data.label_ids.contains(&"UNREAD".to_string()),
+                ),
                 tasks_done: ActiveValue::Set(false),
                 has_new_reply: ActiveValue::Set(has_new_reply && user_has_replied),
                 is_thread: ActiveValue::Set(is_thread),
-                from: ActiveValue::Set(email_message.from),
-                subject: ActiveValue::Set(email_message.subject),
-                snippet: ActiveValue::Set(email_message.snippet),
-                internal_date: ActiveValue::Set(email_message.internal_date),
+                from: ActiveValue::Set(data.email_data.from),
+                subject: ActiveValue::Set(data.email_data.subject),
+                snippet: ActiveValue::Set(data.email_data.snippet),
+                internal_date: ActiveValue::Set(data.email_data.internal_date),
             },
         )
         .await
@@ -491,7 +491,7 @@ impl EmailProcessor {
                     if DatabaseErrorCode::from_u32(code)
                         .is_some_and(|c| c == DatabaseErrorCode::UniqueViolation) =>
                 {
-                    tracing::warn!("Email {} already processed", email_message.id);
+                    tracing::warn!("Email {} already processed", data.email_data.id);
                     Ok(())
                 }
                 _ => Err(anyhow!("Error inserting processed email: {:?}", err)),
@@ -500,12 +500,12 @@ impl EmailProcessor {
     }
 
     async fn run_processor_pipeline(&self, email_id: String) -> anyhow::Result<()> {
-        let email_message = self
+        let msg = self
             .email_client
             .get_message_by_id(&email_id)
             .await
             .context("Failed to fetch email")?;
-        let simplified = SimplifiedMessage::from_gmail_message(&email_message).context(format!(
+        let simplified = SimplifiedMessage::from_gmail_message(&msg).context(format!(
             "Failed to simplify email: {}, user: {}",
             email_id, self.user_id
         ))?;
@@ -527,13 +527,18 @@ impl EmailProcessor {
 
         self.rate_limiters.acquire_one().await;
 
-        let prompt_return_data = self.parse_and_prompt_email(&simplified).await?;
+        let PromptReturnData {
+            email_rule,
+            ai_answer,
+            ai_confidence,
+            mut token_usage,
+            ..
+        } = self.parse_and_prompt_email(&simplified).await?;
 
-        let mut token_usage = prompt_return_data.token_usage;
         let mut extracted_tasks = Vec::new();
 
         // Extract tasks if the matched rule has extract_tasks enabled
-        if prompt_return_data.email_rule.extract_tasks {
+        if email_rule.extract_tasks {
             self.rate_limiters.acquire_one().await;
             match task_extraction::extract_tasks_from_email(
                 &self.http_client,
@@ -553,32 +558,43 @@ impl EmailProcessor {
         }
 
         // Queue embedding task for batch processing (deferred, Background priority)
-        if should_embed_email(prompt_return_data.email_rule.priority) {
-            let chunks = chunk_email(&simplified);
+        // ! Embedding is not that useful at the moment
+        // if should_embed_email(prompt_return_data.email_rule.priority) {
+        //     let chunks = chunk_email(&simplified);
 
-            let entry = QueueEntry {
-                user_email: self.email_address.clone(),
-                user_id: self.user_id,
-                email_id: simplified.id.clone(),
-                priority: Priority::Background,
-                task: TaskData::Embedding { chunks },
-            };
-            if self.task_queue.push(entry) {
-                tracing::debug!(
-                    "Queued embedding task for email {} (label: {})",
-                    simplified.id,
-                    prompt_return_data.email_rule.mail_label
-                );
-            }
-        }
+        //     let entry = QueueEntry {
+        //         user_email: self.email_address.clone(),
+        //         user_id: self.user_id,
+        //         email_id: simplified.id.clone(),
+        //         priority: Priority::Background,
+        //         task: TaskData::Embedding { chunks },
+        //     };
+        //     if self.task_queue.push(entry) {
+        //         tracing::debug!(
+        //             "Queued embedding task for email {} (label: {})",
+        //             simplified.id,
+        //             prompt_return_data.email_rule.mail_label
+        //         );
+        //     }
+        // }
 
         match self
-            .record_processed_email(ProcessedEmailRecordData {
-                email_message: EmailData::from_message(email_message, simplified)?,
-                ai_data: AiEmailData {
-                    prompt_return_data,
-                    extracted_tasks,
+            .record_processed_email(ProcessedEmailData {
+                email_data: EmailScanData {
+                    id: simplified.id,
+                    thread_id: msg.thread_id,
+                    label_ids: msg.label_ids.unwrap_or_default(),
+                    history_id: msg.history_id.unwrap_or_default(),
+                    internal_date: msg.internal_date.unwrap_or_default(),
+                    from: simplified.from,
+                    subject: simplified.subject,
+                    snippet: msg.snippet,
+                    body: simplified.body,
                 },
+                ai_answer,
+                ai_confidence,
+                category: email_rule.mail_label,
+                extracted_tasks,
             })
             .await
         {
@@ -729,93 +745,4 @@ impl EmailProcessor {
             quota_remaining: self.daily_token_limit - self.current_token_usage(),
         }
     }
-}
-
-#[derive(Display, Debug)]
-pub enum ProcessorStatus {
-    ProcessingHP,
-    ProcessingLP,
-    Queueing,
-    Cancelled,
-    QuotaExceeded,
-    Failed,
-}
-
-enum InterruptSignal {
-    Run,
-    Cancel,
-    Quota,
-    Fail,
-}
-
-#[derive(Debug, Clone, Default)]
-struct FetchOptions {
-    more_recent_than: Option<chrono::Duration>,
-    categories: Option<Vec<String>>,
-}
-
-#[derive(Debug)]
-pub struct EmailProcessorStatusUpdate {
-    pub status: ProcessorStatus,
-    pub emails_processed: i64,
-    pub emails_failed: i64,
-    pub emails_remaining: i64,
-    pub total_emails: usize,
-    pub hp_emails: usize,
-    pub lp_emails: usize,
-    pub tokens_consumed: i64,
-    pub quota_remaining: i64,
-}
-
-#[derive(Debug)]
-pub struct PromptReturnData {
-    pub email_rule: EmailRule,
-    pub ai_answer: String,
-    pub ai_confidence: f32,
-    pub heuristics_used: bool,
-    pub token_usage: i64,
-}
-
-#[derive(Debug)]
-pub struct AiEmailData {
-    pub prompt_return_data: PromptReturnData,
-    pub extracted_tasks: Vec<ExtractedTask>,
-}
-
-#[derive(Debug)]
-pub struct EmailData {
-    pub id: String,
-    pub label_ids: Vec<String>,
-    pub thread_id: Option<String>,
-    pub history_id: u64,
-    pub internal_date: i64,
-    pub from: Option<String>,
-    pub subject: Option<String>,
-    pub snippet: Option<String>,
-}
-
-impl EmailData {
-    pub fn from_message(
-        msg: google_gmail1::api::Message,
-        simplified: SimplifiedMessage,
-    ) -> anyhow::Result<Self> {
-        let id = msg.id.ok_or_else(|| anyhow!("Missing email id"))?;
-
-        Ok(Self {
-            id,
-            label_ids: msg.label_ids.unwrap_or_default(),
-            thread_id: msg.thread_id,
-            history_id: msg.history_id.unwrap_or_default(),
-            internal_date: msg.internal_date.unwrap_or_default(),
-            from: simplified.from,
-            subject: simplified.subject,
-            snippet: msg.snippet,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct ProcessedEmailRecordData {
-    pub email_message: EmailData,
-    pub ai_data: AiEmailData,
 }

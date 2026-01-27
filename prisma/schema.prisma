@@ -95,13 +95,14 @@ model user {
   last_payment_attempt_at    DateTime?                 @db.Timestamptz(6)
   created_at                 DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  is_setup_complete          Boolean                   @default(false)
+  is_initial_scan_complete   Boolean                   @default(false)
   processed_daily_summaries  processed_daily_summary[]
   processed_emails           processed_email[]
   user_token_usage_stats     user_token_usage_stat[]
   user_email_rules           user_email_rule[]
   auto_cleanup_settings      auto_cleanup_setting[]
   user_account_access        user_account_access?
-  setup_completed            Boolean                   @default(false)
   last_updated_email_rules   DateTime                  @default(now()) @db.Timestamptz(6)
   daily_token_limit          BigInt
 }

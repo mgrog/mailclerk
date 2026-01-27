@@ -17,7 +17,7 @@ use super::mistral::ChatApiResponseOrError;
 
 const AI_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completions";
 
-fn system_prompt() -> String {
+pub fn system_prompt() -> String {
     formatdoc! {r#"
         You are a helpful assistant that extracts actionable tasks from emails.
         Analyze the email content and identify any tasks, action items, or to-dos that the recipient should complete.

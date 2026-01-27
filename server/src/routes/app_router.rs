@@ -82,6 +82,7 @@ impl AppRouter {
                 "/email",
                 Router::new()
                     .route("/", get(email::get_all))
+                    .route("/:id", get(email::get_sanitized_message))
                     .route("/feed", get(email::get_feed))
                     .route("/search", get(email::search))
                     .route(

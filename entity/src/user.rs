@@ -16,9 +16,10 @@ pub struct Model {
     pub last_payment_attempt_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
-    pub setup_completed: bool,
     pub last_updated_email_rules: DateTimeWithTimeZone,
     pub daily_token_limit: i64,
+    pub is_initial_scan_complete: bool,
+    pub is_setup_complete: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

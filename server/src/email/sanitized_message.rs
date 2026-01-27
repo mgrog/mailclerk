@@ -1,3 +1,4 @@
+use ammonia::{Builder, UrlRelative};
 use anyhow::Context;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use google_gmail1::api::{Message, MessagePart};
@@ -6,16 +7,115 @@ use mail_parser::{MessageParser, MimeHeaders};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs;
 
-/// Regex to strip HTML comments and script tags (safety net for JS-disabled WebView)
-static SANITIZE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?is)<!--[\s\S]*?-->|<script[\s\S]*?</script>").unwrap());
+/// Sanitize CSS by removing url() values to prevent tracking/data exfiltration
+fn sanitize_css(css: &str) -> String {
+    static URL_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        // Match url() with double-quoted, single-quoted, or unquoted content
+        Regex::new(r#"(?i)url\s*\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)"#).unwrap()
+    });
+    static IMPORT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"(?i)@import\s+(?:url\s*\([^)]*\)|['"][^'"]*['"])[^;]*;"#).unwrap()
+    });
 
-/// Sanitize HTML for display in a JS-disabled WebView
-/// Strips comments and script tags while preserving all other content
+    let result = IMPORT_PATTERN.replace_all(css, "");
+    URL_PATTERN.replace_all(&result, "").into_owned()
+}
+
+/// Sanitize CSS within <style> tags in HTML
+fn sanitize_style_tags(html: &str) -> String {
+    static STYLE_TAG_PATTERN: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?is)(<style[^>]*>)(.*?)(</style>)").unwrap());
+
+    STYLE_TAG_PATTERN
+        .replace_all(html, |caps: &regex::Captures| {
+            format!("{}{}{}", &caps[1], sanitize_css(&caps[2]), &caps[3])
+        })
+        .into_owned()
+}
+
+/// Extract content from within <head> tags
+fn extract_head_content(html: &str) -> Option<String> {
+    static HEAD_PATTERN: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?is)<head[^>]*>(.*?)</head>").unwrap());
+
+    HEAD_PATTERN.captures(html).map(|caps| caps[1].to_string())
+}
+
+/// Extract content from within <body> tags
+fn extract_body_content(html: &str) -> Option<String> {
+    static BODY_PATTERN: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?is)<body[^>]*>(.*?)</body>").unwrap());
+
+    BODY_PATTERN.captures(html).map(|caps| caps[1].to_string())
+}
+
+/// Sanitize HTML for display in a WebView (without JS disabled)
+/// Removes all XSS vectors: scripts, event handlers, dangerous URLs, etc.
 pub fn sanitize_html(html: &str) -> String {
-    SANITIZE_RE.replace_all(html, "").to_string()
+    static SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
+        let mut builder = Builder::default();
+
+        // Allow common safe tags for email display
+        #[rustfmt::skip]
+        let tags: HashSet<&str> = [
+            "a", "abbr", "acronym", "address", "area", "article", "aside", "b",
+            "bdi", "bdo", "big", "blockquote", "br", "caption", "center", "cite",
+            "code", "col", "colgroup", "dd", "del", "details", "dfn", "div",
+            "dl", "dt", "em", "figcaption", "figure", "font", "footer", "h1",
+            "h2", "h3", "h4", "h5", "h6", "header", "hr", "i",
+            "img", "ins", "kbd", "li", "main", "map", "mark", "meta", "nav",
+            "ol", "p", "pre", "q", "rp", "rt", "ruby", "s",
+            "samp", "section", "small", "span", "strike", "strong", "style", "sub", "summary",
+            "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time",
+            "tr", "tt", "u", "ul", "var", "wbr",
+        ].into_iter().collect();
+        builder.tags(tags);
+
+        // Allow safe attributes (NO event handlers like onclick, onerror, etc.)
+        #[rustfmt::skip]
+        let tag_attributes: HashMap<&str, HashSet<&str>> = [
+            ("a", ["href", "name", "target", "title"].into_iter().collect()),
+            ("img", ["src", "alt", "title", "width", "height"].into_iter().collect()),
+            ("table", ["border", "cellpadding", "cellspacing", "width", "height", "align", "bgcolor"].into_iter().collect()),
+            ("td", ["colspan", "rowspan", "width", "height", "align", "valign", "bgcolor"].into_iter().collect()),
+            ("th", ["colspan", "rowspan", "width", "height", "align", "valign", "bgcolor"].into_iter().collect()),
+            ("tr", ["align", "valign", "bgcolor"].into_iter().collect()),
+            ("col", ["span", "width"].into_iter().collect()),
+            ("colgroup", ["span", "width"].into_iter().collect()),
+            ("font", ["color", "face", "size"].into_iter().collect()),
+            ("div", ["align"].into_iter().collect()),
+            ("p", ["align"].into_iter().collect()),
+            ("area", ["alt", "coords", "href", "shape"].into_iter().collect()),
+            ("map", ["name"].into_iter().collect()),
+            // Allow viewport meta for proper scaling (exclude http-equiv to prevent redirects)
+            ("meta", ["name", "content", "charset"].into_iter().collect()),
+        ].into_iter().collect();
+        builder.tag_attributes(tag_attributes);
+
+        // Allow styles
+        builder.rm_clean_content_tags(["style"]);
+
+        // Allow style attribute on all tags (ammonia strips dangerous CSS)
+        builder.add_generic_attributes(["style", "class", "id", "dir", "lang", "title"]);
+
+        // Only allow safe URL schemes (NO javascript:, vbscript:, data:)
+        let url_schemes: HashSet<&str> = ["http", "https", "mailto", "cid"].into_iter().collect();
+        builder.url_schemes(url_schemes);
+
+        // Keep relative URLs as-is (for cid: references that got rewritten to data:)
+        builder.url_relative(UrlRelative::PassThrough);
+
+        // Strip comments
+        builder.strip_comments(true);
+
+        builder
+    });
+
+    let sanitized = SANITIZER.clean(html).to_string();
+    sanitize_style_tags(&sanitized)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
@@ -105,7 +205,6 @@ pub fn extract_html_doc(message: mail_parser::Message) -> anyhow::Result<String>
 
     let mut html_doc = None;
     for part in &message.parts {
-        println!("DEBUG Part: {}", part);
         if part.is_text_html() {
             if let Some(content) = part.text_contents() {
                 // Look for HTML document markers
@@ -152,11 +251,23 @@ pub fn extract_html_doc(message: mail_parser::Message) -> anyhow::Result<String>
         html = html.replace(&format!("cid:{}", cid), &data_url);
     }
 
-    // Sanitize HTML to remove XSS vectors (scripts, event handlers, etc.)
-    let html = sanitize_html(&html);
+    // Extract head and body content before sanitization
+    let original_head = extract_head_content(&html);
+    let body_content = extract_body_content(&html).unwrap_or(html);
 
-    // Wrap with WebView-safe shell
-    Ok(html)
+    // Sanitize body HTML to remove XSS vectors (scripts, event handlers, etc.)
+    let sanitized_body = sanitize_html(&body_content);
+
+    // Sanitize CSS in head content (only remove url() calls, preserve font declarations)
+    let sanitized_head = original_head.as_ref().map(|h| sanitize_style_tags(h));
+
+    // Wrap with WebView-safe shell, injecting original head content
+    let content = wrap_in_webview_shell(&sanitized_body, sanitized_head.as_deref());
+
+    // Debug: log webview content to file
+    let _ = fs::write("debug/webview_debug.html", &content);
+
+    Ok(content)
 }
 
 /// Decode body.data from Gmail API MessagePartBody
@@ -208,12 +319,23 @@ pub fn gmail_payload_to_webview_html(message: &Message) -> anyhow::Result<String
         html = html.replace(&format!("cid:{}", cid), data_url);
     }
 
-    // Sanitize HTML
-    let html = sanitize_html(&html);
+    // Extract head and body content
+    let original_head = extract_head_content(&html);
+    let body_content = extract_body_content(&html).unwrap_or(html);
 
-    // Wrap with WebView-safe shell
-    // Ok(wrap_in_webview_shell(&html))
-    Ok(html)
+    // Sanitize body HTML to remove XSS vectors (scripts, event handlers, etc.)
+    let sanitized_body = sanitize_html(&body_content);
+
+    // Sanitize CSS in head content (only remove url() calls, preserve font declarations)
+    let sanitized_head = original_head.map(|h| sanitize_style_tags(&h));
+
+    // Wrap with WebView-safe shell, injecting original head content
+    let content = wrap_in_webview_shell(&sanitized_body, sanitized_head.as_deref());
+
+    // Debug: log webview content to file
+    let _ = fs::write("debug/webview_debug.html", &content);
+
+    Ok(content)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -363,35 +485,50 @@ fn get_header(part: &MessagePart, name: &str) -> Option<String> {
 }
 
 /// Wrap HTML body in a WebView-safe shell (single message)
-fn wrap_in_webview_shell(body: &str) -> String {
+/// If original_head is provided, it will be injected after our base styles
+fn wrap_in_webview_shell(body: &str, original_head: Option<&str>) -> String {
+    let injected_head = original_head.unwrap_or("");
     formatdoc! {r#"
         <!DOCTYPE html>
         <html>
         <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
             <style>
-                img {{ max-width: 100%; height: auto; }}
-                table {{ max-width: 100%; border-collapse: collapse; }}
-                body {{ margin: 0; padding: 8px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
+                * {{ box-sizing: border-box !important; }}
+                html, body {{ margin: 0 !important; padding: 0 !important; width: 100% !important; }}
+                body {{ 
+                    overflow-x: hidden !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;                      
+                }}
+                img {{ max-width: 100% !important; height: auto !important; }}
             </style>
+            {injected_head}
         </head>
         <body>{body}</body>
         </html>"#,
+        injected_head = injected_head,
         body = body
     }
 }
 
 /// Wrap HTML body in a WebView-safe shell (thread with multiple messages)
-fn wrap_in_thread_webview_shell(body: &str) -> String {
+/// If original_head is provided, it will be injected after our base styles
+#[allow(dead_code)]
+fn wrap_in_thread_webview_shell(body: &str, original_head: Option<&str>) -> String {
+    let injected_head = original_head.unwrap_or("");
     formatdoc! {r#"
         <!DOCTYPE html>
         <html>
         <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
             <style>
-                img {{ max-width: 100%; height: auto; }}
-                table {{ max-width: 100%; border-collapse: collapse; }}
-                body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
+                * {{ box-sizing: border-box !important; }}
+                html, body {{ margin: 0 !important; padding: 0 !important; width: 100% !important; }}
+                body {{ 
+                    overflow-x: hidden !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;                      
+                }}
+                img {{ max-width: 100% !important; height: auto !important; }}
                 .thread-message {{ border-bottom: 1px solid #e0e0e0; padding: 16px 8px; }}
                 .thread-message:last-child {{ border-bottom: none; }}
                 .message-header {{ margin-bottom: 12px; }}
@@ -399,9 +536,11 @@ fn wrap_in_thread_webview_shell(body: &str) -> String {
                 .message-meta {{ font-size: 12px; color: #666; margin-top: 2px; }}
                 .message-body {{ overflow-wrap: break-word; }}
             </style>
+            {injected_head}
         </head>
         <body>{body}</body>
         </html>"#,
+        injected_head = injected_head,
         body = body
     }
 }

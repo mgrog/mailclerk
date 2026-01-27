@@ -76,6 +76,12 @@ pub struct EmbeddingConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct InitialScanConfig {
+    pub max_emails: usize,
+    pub lookback_days: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ApiConfig {
     pub key: String,
     pub prompt_limits: PromptLimits,
@@ -97,6 +103,7 @@ struct ConfigFile {
     model: ModelConfig,
     frontend: FEConfig,
     embedding: EmbeddingConfig,
+    initial_scan: InitialScanConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,13 +136,14 @@ pub struct ServerConfig {
     pub model: ModelConfig,
     pub frontend: Frontend,
     pub embedding: EmbeddingConfig,
+    pub initial_scan: InitialScanConfig,
 }
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}",
+            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}\n\nInitial Scan Config: {:?}",
             self.settings,
             self.api,
             self.categories
@@ -150,6 +158,7 @@ impl std::fmt::Display for ServerConfig {
             self.model,
             self.frontend,
             self.embedding,
+            self.initial_scan,
         )
     }
 }
@@ -210,6 +219,7 @@ lazy_static! {
             heuristics,
             frontend,
             embedding,
+            initial_scan,
         } = cfg_file;
 
         let frontend = Frontend {
@@ -227,6 +237,7 @@ lazy_static! {
             model,
             frontend,
             embedding,
+            initial_scan,
         }
     };
     pub static ref UNKNOWN_CATEGORY: Category = Category {

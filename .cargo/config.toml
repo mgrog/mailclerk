@@ -1,2 +1,8 @@
 [alias]
-prisma = "run -p prisma-cli --"
+prisma = "run -p prisma-cli --"     
+# Generate sea-orm entities from database
+gen-entity = "run -p tools --bin gen-entity"
+gen-key = "run -p tools --bin gen-key"
+decrypt = "run -p tools --bin decrypt"
+tokenize = "run -p tools --bin tokenize"
+cosine-similarity = "run -p tools --bin cosine-similarity"

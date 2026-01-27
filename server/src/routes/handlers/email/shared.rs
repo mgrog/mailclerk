@@ -14,11 +14,12 @@ pub(super) async fn fetch_email_client(
     }: ServerState,
     user_email: String,
 ) -> anyhow::Result<EmailClient> {
-    // First, try to get from cache with read lock
+    // Try to get from cache with read lock - touch() is atomic so no write lock needed
     {
         let cache = email_client_cache.read().await;
         if let Some(client) = cache.get(&user_email) {
             if !check_expired(client.expires_at) {
+                client.touch();
                 return Ok(client.clone());
             }
         }

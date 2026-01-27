@@ -58,7 +58,8 @@ impl UserCtrl {
             last_payment_attempt_at: ActiveValue::Set(None),
             created_at: ActiveValue::Set(now),
             updated_at: ActiveValue::Set(now),
-            setup_completed: ActiveValue::Set(false),
+            is_setup_complete: ActiveValue::NotSet,
+            is_initial_scan_complete: ActiveValue::NotSet,
             last_updated_email_rules: ActiveValue::Set(now),
             daily_token_limit: ActiveValue::Set(cfg.api.token_limits.daily_user_quota as i64),
         };
@@ -260,6 +261,22 @@ impl UserCtrl {
         .exec(conn)
         .await
         .context("Error unlocking daily limit")?;
+
+        Ok(())
+    }
+
+    pub async fn set_initial_scan_complete(
+        conn: &DatabaseConnection,
+        user_id: i32,
+    ) -> AppResult<()> {
+        User::update(user::ActiveModel {
+            id: ActiveValue::Set(user_id),
+            is_initial_scan_complete: ActiveValue::Set(true),
+            ..Default::default()
+        })
+        .exec(conn)
+        .await
+        .context("Error setting initial scan flag")?;
 
         Ok(())
     }

@@ -18,7 +18,7 @@ use crate::{
 
 const AI_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completions";
 
-fn system_prompt(prompt_categories: Vec<String>) -> String {
+pub fn system_prompt(prompt_categories: Vec<String>) -> String {
     formatdoc! {r#"
         You are a helpful assistant that can categorize emails such as the categories inside the square brackets below.
         [{categories}]

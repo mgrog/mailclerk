@@ -22,7 +22,7 @@ use crate::server_config::cfg;
 use crate::HttpClient;
 use crate::{error::AppResult, ServerState};
 
-use super::email_processor::ActiveEmailProcessorMap;
+use super::email_scanner::ActiveEmailProcessorMap;
 use crate::email::client::{EmailClient, MessageListOptions};
 
 pub async fn add_users_to_processing(

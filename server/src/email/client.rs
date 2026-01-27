@@ -13,6 +13,7 @@ use lib_email_clients::gmail::api_quota::{GMAIL_API_QUOTA, GMAIL_QUOTA_PER_SECON
 use lib_email_clients::gmail::label_colors::GmailLabelColorMap;
 use once_cell::sync::Lazy;
 use serde_json::json;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::{collections::HashSet, time::Duration};
 use strum::IntoEnumIterator;
@@ -56,6 +57,22 @@ pub struct EmailClient {
     rate_limiter: Arc<RateLimiter>,
     pub email_address: String,
     pub expires_at: DateTimeWithTimeZone,
+    /// Unix timestamp (seconds) of last cache access - atomic for lock-free updates
+    last_used: Arc<AtomicI64>,
+}
+
+impl EmailClient {
+    /// Update the last_used timestamp to now
+    pub fn touch(&self) {
+        self.last_used
+            .store(Utc::now().timestamp(), Ordering::Relaxed);
+    }
+
+    /// Get the last_used timestamp
+    pub fn last_used(&self) -> chrono::DateTime<Utc> {
+        chrono::DateTime::from_timestamp(self.last_used.load(Ordering::Relaxed), 0)
+            .unwrap_or_else(Utc::now)
+    }
 }
 
 // TODO: Migrate Gmail specific parts to libs/email_clients/gmail
@@ -101,6 +118,7 @@ impl EmailClient {
             rate_limiter,
             email_address: user.email().to_string(),
             expires_at: user.get_expires_at(),
+            last_used: Arc::new(AtomicI64::new(Utc::now().timestamp())),
         })
     }
 
@@ -121,6 +139,7 @@ impl EmailClient {
             email_address: "test".to_string(),
             expires_at: chrono::Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap())
                 + chrono::Duration::seconds(15),
+            last_used: Arc::new(AtomicI64::new(Utc::now().timestamp())),
         }
     }
 

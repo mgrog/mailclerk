@@ -38,7 +38,7 @@ use reqwest::Certificate;
 use routes::AppRouter;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use server_config::get_cert;
-use state::email_processor::ActiveEmailProcessorMap;
+use state::email_scanner::ActiveEmailProcessorMap;
 use tokio::{signal, task::JoinHandle};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
