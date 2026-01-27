@@ -79,6 +79,7 @@ pub struct EmbeddingConfig {
 pub struct InitialScanConfig {
     pub max_emails: usize,
     pub lookback_days: i64,
+    pub batch_token_limit: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -48,7 +48,7 @@ struct FetchOptions {
     categories: Option<Vec<String>>,
 }
 
-#[derive(Display, Debug)]
+#[derive(Display, Debug, Clone, Copy)]
 pub enum ProcessorStatus {
     ProcessingHP,
     ProcessingLP,

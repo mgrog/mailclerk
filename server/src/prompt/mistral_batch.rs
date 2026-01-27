@@ -411,14 +411,23 @@ pub fn parse_task_extraction_results(results: Vec<BatchResultLine>) -> Vec<TaskE
 // High-Level Batch Processing
 // ============================================================================
 
+/// Result from a batch job including job metadata
+pub struct BatchJobResult {
+    pub job_id: String,
+    pub results: Vec<BatchResultLine>,
+}
+
 /// Run a complete batch job: create with inline requests, wait, download results
 pub async fn run_batch_job(
     http_client: &HttpClient,
     requests: Vec<BatchRequest>,
     job_name: &str,
-) -> anyhow::Result<Vec<BatchResultLine>> {
+) -> anyhow::Result<BatchJobResult> {
     if requests.is_empty() {
-        return Ok(Vec::new());
+        return Ok(BatchJobResult {
+            job_id: String::new(),
+            results: Vec::new(),
+        });
     }
 
     tracing::info!(
@@ -429,6 +438,7 @@ pub async fn run_batch_job(
 
     // Create job with inline requests
     let job = create_inline_batch_job(http_client, requests).await?;
+    let job_id = job.id.clone();
     tracing::info!("Created batch job: {} (status: {:?})", job.id, job.status);
 
     // Wait for completion
@@ -457,7 +467,7 @@ pub async fn run_batch_job(
     let results = download_results(http_client, &output_file_id).await?;
     tracing::info!("Downloaded {} results", results.len());
 
-    Ok(results)
+    Ok(BatchJobResult { job_id, results })
 }
 
 #[cfg(test)]

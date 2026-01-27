@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use chrono::Duration;
 
 use crate::{
@@ -15,7 +15,8 @@ use crate::{
         simplified_message::SimplifiedMessage,
     },
     model::user::{UserCtrl, UserWithAccountAccessAndUsage},
-    prompt::task_extraction::ExtractedTask,
+    observability::{ScanPhase, ScanTracker, ScanType},
+    prompt::{mistral::categorization_user_prompt, task_extraction::ExtractedTask},
     server_config::cfg,
     state::email_scanner::{
         batch_processor::{
@@ -36,6 +37,7 @@ use crate::{
 pub async fn run_initial_scan_for_user(
     state: ServerState,
     user: UserWithAccountAccessAndUsage,
+    scan_tracker: ScanTracker,
 ) -> anyhow::Result<()> {
     let user_id = user.id;
     let user_email = user.email.clone();
@@ -45,6 +47,9 @@ pub async fn run_initial_scan_for_user(
     let max_emails = cfg.initial_scan.max_emails;
     let lookback_days = cfg.initial_scan.lookback_days;
 
+    // Register the scan with the tracker
+    scan_tracker.register_scan(ScanType::InitialScan, user_email.clone(), user_id);
+
     tracing::info!(
         "Starting initial scan for user {} ({}) - max {} emails, {} days lookback",
         user_id,
@@ -53,130 +58,262 @@ pub async fn run_initial_scan_for_user(
         lookback_days
     );
 
-    // Create email client
-    let email_client = EmailClient::new(http_client.clone(), conn.clone(), user.clone())
-        .await
-        .context("Failed to create email client for initial scan")?;
+    // Helper to handle errors and update tracker
+    let run_scan = async {
+        // Create email client
+        let email_client = EmailClient::new(http_client.clone(), conn.clone(), user.clone())
+            .await
+            .context("Failed to create email client for initial scan")?;
 
-    // Load user's email rules
-    let user_email_rules = UserEmailRules::from_user(&conn, user_id)
-        .await
-        .context("Failed to load user email rules")?;
+        // Load user's email rules
+        let user_email_rules = UserEmailRules::from_user(&conn, user_id)
+            .await
+            .context("Failed to load user email rules")?;
 
-    // Fetch emails from past N days
-    let emails = fetch_emails_for_scan(&email_client, lookback_days, max_emails).await?;
+        // Phase: Fetching emails from past N days
+        scan_tracker.set_phase(user_id, ScanPhase::Fetching);
+        let emails = fetch_emails_for_scan(&email_client, lookback_days, max_emails).await?;
 
-    if emails.is_empty() {
-        tracing::info!("No emails to process for user {}", user_email);
-        UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
-        return Ok(());
-    }
+        if emails.is_empty() {
+            tracing::info!("No emails to process for user {}", user_email);
+            UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
+            return Ok(());
+        }
 
-    tracing::info!(
-        "Fetched {} emails for initial scan of user {}",
-        emails.len(),
-        user_email
-    );
-
-    // Phase 1: Batch categorization
-    let category_results = run_categorization_batch(
-        &http_client,
-        &emails,
-        &user_email_rules,
-        "initial_scan_categorization",
-    )
-    .await?;
-
-    tracing::info!(
-        "Categorization complete for user {}: {} results",
-        user_email,
-        category_results.len()
-    );
-
-    // Build map of email_id -> email from
-    let email_from_map: HashMap<String, String> = emails
-        .iter()
-        .filter_map(|e| e.from.as_ref().map(|from| (e.id.clone(), from.clone())))
-        .collect();
-
-    // Build map of email_id -> (category, confidence, email_rule)
-    let mut categorization_map: HashMap<String, (String, f32, EmailRule)> = HashMap::new();
-    for result in category_results {
-        let (email_rule, _) = find_matching_rule(
-            &result.category,
-            result.confidence,
-            &user_email_rules,
-            email_from_map.get(&result.email_id),
-        );
-        categorization_map.insert(
-            result.email_id,
-            (result.category, result.confidence, email_rule),
-        );
-    }
-
-    // Phase 2: Batch task extraction for emails that need it
-    let emails_needing_tasks: Vec<&EmailScanData> = emails
-        .iter()
-        .filter(|e| {
-            categorization_map
-                .get(&e.id)
-                .map(|(_, _, rule)| rule.extract_tasks)
-                .unwrap_or(false)
-        })
-        .collect();
-
-    let task_results = if !emails_needing_tasks.is_empty() {
         tracing::info!(
-            "Running task extraction for {} emails",
-            emails_needing_tasks.len()
+            "Fetched {} emails for initial scan of user {}",
+            emails.len(),
+            user_email
         );
-        run_task_extraction_batch(
+
+        // Prune emails if token usage would exceed the batch limit
+        let token_limit = cfg.initial_scan.batch_token_limit;
+        let emails = prune_emails_to_token_limit(emails, token_limit)?;
+
+        // Update tracker with total email count (after pruning)
+        scan_tracker.set_total_emails(user_id, emails.len());
+
+        // Phase 1: Batch categorization
+        scan_tracker.set_phase(user_id, ScanPhase::Categorizing { job_id: None });
+        let cat_batch = run_categorization_batch(
             &http_client,
-            &emails_needing_tasks,
-            "initial_scan_task_extraction",
+            &emails,
+            &user_email_rules,
+            &format!("initial_scan_cat_{}", user_id),
         )
-        .await?
-    } else {
-        Vec::new()
+        .await?;
+
+        // Update phase with job ID now that we have it
+        if !cat_batch.job_id.is_empty() {
+            scan_tracker.set_phase(
+                user_id,
+                ScanPhase::Categorizing {
+                    job_id: Some(cat_batch.job_id.clone()),
+                },
+            );
+        }
+
+        tracing::info!(
+            "Categorization complete for user {}: {} results (job: {})",
+            user_email,
+            cat_batch.results.len(),
+            cat_batch.job_id
+        );
+
+        // Build map of email_id -> email from
+        let email_from_map: HashMap<String, String> = emails
+            .iter()
+            .filter_map(|e| e.from.as_ref().map(|from| (e.id.clone(), from.clone())))
+            .collect();
+
+        // Build map of email_id -> (category, confidence, email_rule)
+        let mut categorization_map: HashMap<String, (String, f32, EmailRule)> = HashMap::new();
+        for result in cat_batch.results {
+            let (email_rule, _) = find_matching_rule(
+                &result.category,
+                result.confidence,
+                &user_email_rules,
+                email_from_map.get(&result.email_id),
+            );
+            categorization_map.insert(
+                result.email_id,
+                (result.category, result.confidence, email_rule),
+            );
+        }
+
+        // Phase 2: Batch task extraction for emails that need it
+        let emails_needing_tasks: Vec<&EmailScanData> = emails
+            .iter()
+            .filter(|e| {
+                categorization_map
+                    .get(&e.id)
+                    .map(|(_, _, rule)| rule.extract_tasks)
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let task_batch_results = if !emails_needing_tasks.is_empty() {
+            scan_tracker.set_phase(user_id, ScanPhase::ExtractingTasks { job_id: None });
+            tracing::info!(
+                "Running task extraction for {} emails",
+                emails_needing_tasks.len()
+            );
+            let task_batch = run_task_extraction_batch(
+                &http_client,
+                &emails_needing_tasks,
+                &format!("initial_scan_task_{}", user_id),
+            )
+            .await?;
+
+            // Update phase with job ID
+            if !task_batch.job_id.is_empty() {
+                scan_tracker.set_phase(
+                    user_id,
+                    ScanPhase::ExtractingTasks {
+                        job_id: Some(task_batch.job_id),
+                    },
+                );
+            }
+
+            task_batch.results
+        } else {
+            Vec::new()
+        };
+
+        // Build map of email_id -> tasks
+        let task_map: HashMap<String, Vec<ExtractedTask>> = task_batch_results
+            .into_iter()
+            .map(|r| (r.email_id, r.tasks))
+            .collect();
+
+        // Phase 3: Build processed email data
+        let processed_emails: Vec<ProcessedEmailData> = emails
+            .into_iter()
+            .filter_map(|email| {
+                let (ai_answer, ai_confidence, rule) = categorization_map.remove(&email.id)?;
+                let category = rule.mail_label.clone();
+                let extracted_tasks = task_map.get(&email.id).cloned().unwrap_or_default();
+
+                Some(ProcessedEmailData {
+                    email_data: email,
+                    category,
+                    ai_answer,
+                    ai_confidence,
+                    extracted_tasks,
+                })
+            })
+            .collect();
+
+        // Phase 4: Batch insert in chunks
+        scan_tracker.set_phase(user_id, ScanPhase::Inserting);
+        let stored_count = batch_insert_processed_emails(&conn, user_id, processed_emails).await?;
+        scan_tracker.set_processed_emails(user_id, stored_count);
+
+        tracing::info!(
+            "Initial scan complete for user {}: {} emails stored",
+            user_email,
+            stored_count
+        );
+
+        // Set is_initial_scan_complete = true
+        UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
+
+        Ok::<(), anyhow::Error>(())
     };
 
-    // Build map of email_id -> tasks
-    let task_map: HashMap<String, Vec<ExtractedTask>> = task_results
-        .into_iter()
-        .map(|r| (r.email_id, r.tasks))
-        .collect();
+    // Run the scan and handle errors
+    match run_scan.await {
+        Ok(()) => {
+            scan_tracker.complete_scan(user_id);
+            Ok(())
+        }
+        Err(e) => {
+            scan_tracker.fail_scan(user_id, e.to_string());
+            Err(e)
+        }
+    }
+}
 
-    // Phase 3: Build processed email data
-    let processed_emails: Vec<ProcessedEmailData> = emails
-        .into_iter()
-        .filter_map(|email| {
-            let (ai_answer, ai_confidence, rule) = categorization_map.remove(&email.id)?;
-            let category = rule.mail_label.clone();
-            let extracted_tasks = task_map.get(&email.id).cloned().unwrap_or_default();
+/// Estimate the token usage for a single email in the categorization batch.
+fn estimate_email_tokens(email: &EmailScanData) -> usize {
+    let user_content = categorization_user_prompt(
+        email.subject.as_deref().unwrap_or(""),
+        email.body.as_deref().unwrap_or(""),
+    );
 
-            Some(ProcessedEmailData {
-                email_data: email,
-                category,
-                ai_answer,
-                ai_confidence,
-                extracted_tasks,
-            })
+    // Use the tokenizer to count tokens
+    tokenizer::token_count(&user_content).unwrap_or_else(|_| {
+        // Fallback: rough estimate of 1 token per 4 characters
+        user_content.len() / 4
+    })
+}
+
+/// Estimate total token usage for all emails and prune if necessary.
+/// Drops oldest emails first (by internal_date) until within the token limit.
+/// Returns the pruned list of emails that fit within the token limit.
+fn prune_emails_to_token_limit(
+    emails: Vec<EmailScanData>,
+    token_limit: usize,
+) -> anyhow::Result<Vec<EmailScanData>> {
+    // Calculate token usage for each email
+    let mut emails_with_tokens: Vec<(EmailScanData, usize)> = emails
+        .into_iter()
+        .map(|e| {
+            let tokens = estimate_email_tokens(&e);
+            (e, tokens)
         })
         .collect();
 
-    // Phase 4: Batch insert in chunks
-    let stored_count = batch_insert_processed_emails(&conn, user_id, processed_emails).await?;
+    let total_tokens: usize = emails_with_tokens.iter().map(|(_, t)| *t).sum();
 
-    tracing::info!(
-        "Initial scan complete for user {}: {} emails stored",
-        user_email,
-        stored_count
+    if total_tokens <= token_limit {
+        tracing::info!(
+            "Estimated token usage: {} (limit: {}), no pruning needed",
+            total_tokens,
+            token_limit
+        );
+        return Ok(emails_with_tokens.into_iter().map(|(e, _)| e).collect());
+    }
+
+    tracing::warn!(
+        "Estimated token usage {} exceeds limit {}, pruning emails",
+        total_tokens,
+        token_limit
     );
 
-    // Set is_initial_scan_complete = true
-    UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
+    // Sort by internal_date ascending (oldest first) so we remove oldest emails first
+    emails_with_tokens.sort_by(|a, b| a.0.internal_date.cmp(&b.0.internal_date));
 
-    Ok(())
+    let mut current_total = total_tokens;
+    let mut pruned_count = 0;
+
+    // Remove oldest emails until we're under the limit
+    while current_total > token_limit && !emails_with_tokens.is_empty() {
+        if let Some((_, tokens)) = emails_with_tokens.first() {
+            current_total -= tokens;
+            emails_with_tokens.remove(0);
+            pruned_count += 1;
+        }
+    }
+
+    if emails_with_tokens.is_empty() {
+        bail!(
+            "Cannot reduce token usage below limit {}. \
+             All {} emails would need to be removed.",
+            token_limit,
+            pruned_count
+        );
+    }
+
+    tracing::info!(
+        "Pruned {} oldest emails to fit within token limit. \
+         Remaining: {} emails, {} tokens",
+        pruned_count,
+        emails_with_tokens.len(),
+        current_total
+    );
+
+    Ok(emails_with_tokens.into_iter().map(|(e, _)| e).collect())
 }
 
 /// Fetch emails from the past N days for initial scan

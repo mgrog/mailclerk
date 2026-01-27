@@ -16,6 +16,7 @@ use tokio::time::interval;
 use crate::model::auto_cleanup_setting::AutoCleanupSettingCtrl;
 use crate::model::processed_email::ProcessedEmailCtrl;
 use crate::model::user::UserCtrl;
+use crate::observability::ScanTracker;
 use crate::prompt::{TaskData, TaskQueue};
 use crate::rate_limiters::RateLimiters;
 use crate::server_config::cfg;
@@ -508,6 +509,7 @@ pub fn watch(
     task_queue: TaskQueue,
     email_processor_map: ActiveEmailProcessorMap,
     rate_limiters: RateLimiters,
+    scan_tracker: ScanTracker,
 ) -> JoinHandle<()> {
     let mut interval = interval(Duration::from_secs(5));
     let mut now = std::time::Instant::now();
@@ -522,17 +524,35 @@ pub fn watch(
             let limiter_status = rate_limiters.get_status();
             let queue_count = task_queue.total_count();
             let in_processing = task_queue.num_in_processing();
-            if let Some(update) = email_processor_map.get_current_state() {
-                tracing::info!(
-                        "Processor Status Update:\n{email_per_second:.2} emails/s | Bucket {limiter_status} | Processing {in_processing} | Queue: H={high} L={low} BG={background}\n{update}",
-                        email_per_second = emails_per_second,
-                        limiter_status = limiter_status,
-                        in_processing = in_processing,
-                        high = queue_count.high,
-                        low = queue_count.low,
-                        background = queue_count.background,
-                        update = update
-                    );
+
+            // Update processor stats in scan_tracker for each active processor
+            for (user_email, processor) in email_processor_map.entries() {
+                let status = processor.status();
+                let processed = processor.total_emails_processed() as u64;
+                let user_queue_count = task_queue.queue_count(&user_email).total();
+                scan_tracker.update_processor(&user_email, status, processed, user_queue_count);
+            }
+
+            // Get combined status tables from scan_tracker
+            let status_update = scan_tracker.get_current_state();
+
+            // Only log if there's something to report
+            if status_update.is_some() || email_processor_map.len() > 0 {
+                let mut status_msg = format!(
+                    "Status Update:\n{email_per_second:.2} emails/s | Bucket {limiter_status} | Processing {in_processing} | Queue: H={high} L={low} BG={background}",
+                    email_per_second = emails_per_second,
+                    limiter_status = limiter_status,
+                    in_processing = in_processing,
+                    high = queue_count.high,
+                    low = queue_count.low,
+                    background = queue_count.background,
+                );
+
+                if let Some(state) = status_update {
+                    status_msg.push_str(&format!("\n{}", state));
+                }
+
+                tracing::info!("{}", status_msg);
             }
         }
     })

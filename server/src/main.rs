@@ -10,6 +10,7 @@ mod embed;
 mod error;
 mod model;
 mod notify;
+mod observability;
 mod prompt;
 mod rate_limiters;
 mod request_tracing;
@@ -32,10 +33,11 @@ use auth::session_store::AuthSessionStore;
 use axum::{extract::FromRef, routing::get, Router};
 use db_core::prelude::*;
 use mimalloc::MiMalloc;
+use observability::ScanTracker;
 use prompt::TaskQueue;
 use rate_limiters::RateLimiters;
 use reqwest::Certificate;
-use routes::AppRouter;
+use routes::{handlers::scan, AppRouter};
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use server_config::get_cert;
 use state::email_scanner::ActiveEmailProcessorMap;
@@ -61,6 +63,7 @@ struct ServerState {
     session_store: AuthSessionStore,
     pub task_queue: TaskQueue,
     pub email_client_cache: EmailClientCache,
+    pub scan_tracker: ScanTracker,
 }
 
 #[tokio::main]
@@ -93,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
 
     let rate_limiters = RateLimiters::from_env();
     let task_queue = TaskQueue::new();
+    let scan_tracker = ScanTracker::new();
 
     let state = ServerState {
         http_client,
@@ -101,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         session_store,
         task_queue,
         email_client_cache,
+        scan_tracker,
     };
 
     tracing_subscriber::registry()
@@ -257,10 +262,14 @@ async fn main() -> anyhow::Result<()> {
         state.task_queue.clone(),
         email_processing_map.clone(),
         state.rate_limiters.clone(),
+        state.scan_tracker.clone(),
     );
     if scanner_only {
         println!("-------- RUNNING SCANNER ONLY --------");
-        let health_router = Router::new().route("/", get(|| async { "OK" }));
+        let health_router = Router::new().route("/", get(|| async { "OK" })).route(
+            "/scan/initial",
+            get(scan::start_initial_scan_ws).with_state(state.clone()),
+        );
         let server_handle = run_server(health_router, scheduler);
         tokio::select! {
             _ = server_handle => {

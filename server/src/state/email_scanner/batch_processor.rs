@@ -15,6 +15,21 @@ use crate::{
     HttpClient,
 };
 
+pub use crate::prompt::mistral::categorization_user_prompt;
+pub use crate::prompt::task_extraction::task_extraction_user_prompt;
+
+/// Result from a categorization batch including job ID
+pub struct CategorizationBatchResult {
+    pub job_id: String,
+    pub results: Vec<mistral_batch::CategoryResult>,
+}
+
+/// Result from a task extraction batch including job ID
+pub struct TaskExtractionBatchResult {
+    pub job_id: String,
+    pub results: Vec<mistral_batch::TaskExtractionResult>,
+}
+
 /// Chunk size for batch database inserts
 pub const DB_INSERT_CHUNK_SIZE: usize = 1000;
 
@@ -30,24 +45,21 @@ pub const DB_INSERT_CHUNK_SIZE: usize = 1000;
 /// * `job_name` - Name for the batch job (for logging/tracking)
 ///
 /// # Returns
-/// Vector of categorization results containing email_id, category, and confidence
+/// Categorization batch result containing job_id and results with email_id, category, and confidence
 pub async fn run_categorization_batch(
     http_client: &HttpClient,
     emails: &[EmailScanData],
     user_email_rules: &UserEmailRules,
     job_name: &str,
-) -> anyhow::Result<Vec<mistral_batch::CategoryResult>> {
+) -> anyhow::Result<CategorizationBatchResult> {
     let system_prompt = mistral::system_prompt(user_email_rules.get_prompt_categories());
 
     let requests: Vec<mistral_batch::BatchRequest> = emails
         .iter()
         .map(|email| {
-            let user_content = format!(
-                r#"Categorize the following email based on the email subject between the <subject> tags and the email body between the <body> tags.
-                <subject>{}</subject>
-                <body>{}</body>"#,
+            let user_content = categorization_user_prompt(
                 email.subject.as_deref().unwrap_or(""),
-                email.body.as_deref().unwrap_or("")
+                email.body.as_deref().unwrap_or(""),
             );
 
             mistral_batch::BatchRequest::for_categorization(
@@ -58,9 +70,12 @@ pub async fn run_categorization_batch(
         })
         .collect();
 
-    let results = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
+    let batch_result = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
 
-    Ok(mistral_batch::parse_categorization_results(results))
+    Ok(CategorizationBatchResult {
+        job_id: batch_result.job_id,
+        results: mistral_batch::parse_categorization_results(batch_result.results),
+    })
 }
 
 /// Run batch task extraction for a collection of emails.
@@ -74,23 +89,20 @@ pub async fn run_categorization_batch(
 /// * `job_name` - Name for the batch job (for logging/tracking)
 ///
 /// # Returns
-/// Vector of task extraction results containing email_id and extracted tasks
+/// Task extraction batch result containing job_id and results with email_id and extracted tasks
 pub async fn run_task_extraction_batch(
     http_client: &HttpClient,
     emails: &[&EmailScanData],
     job_name: &str,
-) -> anyhow::Result<Vec<mistral_batch::TaskExtractionResult>> {
+) -> anyhow::Result<TaskExtractionBatchResult> {
     let system_prompt = task_extraction::system_prompt();
 
     let requests: Vec<mistral_batch::BatchRequest> = emails
         .iter()
         .map(|email| {
-            let user_content = format!(
-                r#"Extract any actionable tasks from the following email.
-                <subject>{}</subject>
-                <body>{}</body>"#,
+            let user_content = task_extraction_user_prompt(
                 email.subject.as_deref().unwrap_or(""),
-                email.body.as_deref().unwrap_or("")
+                email.body.as_deref().unwrap_or(""),
             );
 
             mistral_batch::BatchRequest::for_task_extraction(
@@ -101,9 +113,12 @@ pub async fn run_task_extraction_batch(
         })
         .collect();
 
-    let results = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
+    let batch_result = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
 
-    Ok(mistral_batch::parse_task_extraction_results(results))
+    Ok(TaskExtractionBatchResult {
+        job_id: batch_result.job_id,
+        results: mistral_batch::parse_task_extraction_results(batch_result.results),
+    })
 }
 
 /// Batch insert processed emails into the database in chunks.

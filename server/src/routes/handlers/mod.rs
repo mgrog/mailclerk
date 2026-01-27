@@ -4,5 +4,6 @@ pub mod auth;
 pub mod dev_only;
 pub mod email;
 pub mod gmail_labels;
+pub mod scan;
 pub mod user;
 pub mod user_email_rule;

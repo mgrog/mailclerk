@@ -32,6 +32,17 @@ pub fn system_prompt() -> String {
         Respond only with a JSON object containing a "tasks" array. Do not provide explanations."#}
 }
 
+/// Build the user prompt for task extraction.
+/// This is the prompt template used in both batch and real-time task extraction.
+pub fn task_extraction_user_prompt(subject: &str, body: &str) -> String {
+    format!(
+        r#"Extract any actionable tasks from the following email.
+                <subject>{}</subject>
+                <body>{}</body>"#,
+        subject, body
+    )
+}
+
 pub async fn extract_tasks_from_email(
     http_client: &HttpClient,
     rate_limiters: &rate_limiters::RateLimiters,
@@ -39,7 +50,7 @@ pub async fn extract_tasks_from_email(
 ) -> AppResult<TaskExtractionResponse> {
     let subject = email_message.subject.as_ref().map_or("", |s| s.as_str());
     let body = email_message.body.as_ref().map_or("", |s| s.as_str());
-    let email_content_str = format!("<subject>{}</subject>\n<body>{}</body>", subject, body);
+    let user_content = task_extraction_user_prompt(subject, body);
 
     let resp = http_client
         .post(AI_ENDPOINT)
@@ -55,10 +66,7 @@ pub async fn extract_tasks_from_email(
               },
               {
                 "role": "user",
-                "content": format!(r#"
-                  Extract any actionable tasks from the following email.
-                  {}
-                 "#, email_content_str)
+                "content": user_content
               }
             ],
             "response_format": { "type": "json_object" }

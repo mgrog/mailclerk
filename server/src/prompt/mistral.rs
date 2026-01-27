@@ -23,8 +23,19 @@ pub fn system_prompt(prompt_categories: Vec<String>) -> String {
         You are a helpful assistant that can categorize emails such as the categories inside the square brackets below.
         [{categories}]
         You should try to choose a single category from the above, along with its confidence score.
-        You will only respond with a JSON object with the keys category and confidence. Do not provide explanations or multiple categories."#, 
+        You will only respond with a JSON object with the keys category and confidence. Do not provide explanations or multiple categories."#,
     categories = prompt_categories.join(", ")}
+}
+
+/// Build the user prompt for email categorization.
+/// This is the prompt template used in both batch and real-time categorization.
+pub fn categorization_user_prompt(subject: &str, body: &str) -> String {
+    format!(
+        r#"Categorize the following email based on the email subject between the <subject> tags and the email body between the <body> tags.
+                <subject>{}</subject>
+                <body>{}</body>"#,
+        subject, body
+    )
 }
 
 pub async fn send_category_prompt(
@@ -35,7 +46,7 @@ pub async fn send_category_prompt(
 ) -> AppResult<CategoryPromptResponse> {
     let subject = email_message.subject.as_ref().map_or("", |s| s.as_str());
     let body = email_message.body.as_ref().map_or("", |s| s.as_str());
-    let email_content_str = format!("<subject>{}</subject>\n<body>{}</body>", subject, body);
+    let user_content = categorization_user_prompt(subject, body);
 
     let resp = http_client
         .post(AI_ENDPOINT)
@@ -51,10 +62,7 @@ pub async fn send_category_prompt(
               },
               {
                 "role": "user",
-                "content": format!("r#
-                  Categorize the following email based on the email subject between the <subject> tags and the email body between the <body> tags.
-                  {}
-                 #", email_content_str)
+                "content": user_content
               }
             ],
             "response_format": { "type": "json_object" }
