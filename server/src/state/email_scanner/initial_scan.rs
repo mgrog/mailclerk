@@ -6,29 +6,25 @@
 use std::collections::HashMap;
 
 use anyhow::Context;
-use chrono::{Duration, NaiveDateTime};
-use entity::processed_email;
-use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait};
+use chrono::Duration;
 
 use crate::{
-    db_core::prelude::*,
     email::{
         client::{EmailClient, MessageFormat, MessageListOptions},
         rules::{EmailRule, UserEmailRules},
         simplified_message::SimplifiedMessage,
     },
     model::user::{UserCtrl, UserWithAccountAccessAndUsage},
-    prompt::{
-        mistral, mistral_batch,
-        task_extraction::{self, ExtractedTask},
-    },
+    prompt::task_extraction::ExtractedTask,
     server_config::cfg,
-    state::email_scanner::shared::{find_matching_rule, EmailScanData, ProcessedEmailData},
-    HttpClient, ServerState,
+    state::email_scanner::{
+        batch_processor::{
+            batch_insert_processed_emails, run_categorization_batch, run_task_extraction_batch,
+        },
+        shared::{find_matching_rule, EmailScanData, ProcessedEmailData},
+    },
+    ServerState,
 };
-
-/// Chunk size for batch database inserts
-const DB_INSERT_CHUNK_SIZE: usize = 1000;
 
 /// Run initial scan for a single user.
 /// This function:
@@ -83,8 +79,13 @@ pub async fn run_initial_scan_for_user(
     );
 
     // Phase 1: Batch categorization
-    let category_results =
-        run_categorization_batch(&http_client, &emails, &user_email_rules).await?;
+    let category_results = run_categorization_batch(
+        &http_client,
+        &emails,
+        &user_email_rules,
+        "initial_scan_categorization",
+    )
+    .await?;
 
     tracing::info!(
         "Categorization complete for user {}: {} results",
@@ -129,7 +130,12 @@ pub async fn run_initial_scan_for_user(
             "Running task extraction for {} emails",
             emails_needing_tasks.len()
         );
-        run_task_extraction_batch(&http_client, &emails_needing_tasks).await?
+        run_task_extraction_batch(
+            &http_client,
+            &emails_needing_tasks,
+            "initial_scan_task_extraction",
+        )
+        .await?
     } else {
         Vec::new()
     };
@@ -256,162 +262,15 @@ async fn fetch_emails_for_scan(
     Ok(email_data)
 }
 
-/// Run batch categorization for all emails
-async fn run_categorization_batch(
-    http_client: &HttpClient,
-    emails: &[EmailScanData],
-    user_email_rules: &UserEmailRules,
-) -> anyhow::Result<Vec<mistral_batch::CategoryResult>> {
-    let system_prompt = mistral::system_prompt(user_email_rules.get_prompt_categories());
-
-    let requests: Vec<mistral_batch::BatchRequest> = emails
-        .iter()
-        .map(|email| {
-            let user_content = format!(
-                r#"Categorize the following email based on the email subject between the <subject> tags and the email body between the <body> tags.
-                <subject>{}</subject>
-                <body>{}</body>"#,
-                email.subject.as_deref().unwrap_or(""),
-                email.body.as_deref().unwrap_or("")
-            );
-
-            mistral_batch::BatchRequest::for_categorization(
-                email.id.clone(),
-                system_prompt.clone(),
-                user_content,
-            )
-        })
-        .collect();
-
-    let results =
-        mistral_batch::run_batch_job(http_client, requests, "initial_scan_categorization").await?;
-
-    Ok(mistral_batch::parse_categorization_results(results))
-}
-
-/// Run batch task extraction for emails that need it
-async fn run_task_extraction_batch(
-    http_client: &HttpClient,
-    emails: &[&EmailScanData],
-) -> anyhow::Result<Vec<mistral_batch::TaskExtractionResult>> {
-    let system_prompt = task_extraction::system_prompt();
-
-    let requests: Vec<mistral_batch::BatchRequest> = emails
-        .iter()
-        .map(|email| {
-            let user_content = format!(
-                r#"Extract any actionable tasks from the following email.
-                <subject>{}</subject>
-                <body>{}</body>"#,
-                email.subject.as_deref().unwrap_or(""),
-                email.body.as_deref().unwrap_or("")
-            );
-
-            mistral_batch::BatchRequest::for_task_extraction(
-                email.id.clone(),
-                system_prompt.clone(),
-                user_content,
-            )
-        })
-        .collect();
-
-    let results =
-        mistral_batch::run_batch_job(http_client, requests, "initial_scan_task_extraction").await?;
-
-    Ok(mistral_batch::parse_task_extraction_results(results))
-}
-
-/// Batch insert processed emails in chunks
-async fn batch_insert_processed_emails(
-    conn: &DatabaseConnection,
-    user_id: i32,
-    processed_emails: Vec<ProcessedEmailData>,
-) -> anyhow::Result<usize> {
-    let mut total_inserted = 0;
-
-    for chunk in processed_emails.chunks(DB_INSERT_CHUNK_SIZE) {
-        let active_models: Vec<processed_email::ActiveModel> = chunk
-            .iter()
-            .map(|data| build_active_model(user_id, data))
-            .collect();
-
-        let count = active_models.len();
-
-        // Use insert_many with on_conflict to skip duplicates
-        match ProcessedEmail::insert_many(active_models)
-            .on_conflict(
-                sea_orm::sea_query::OnConflict::column(processed_email::Column::Id)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(conn)
-            .await
-        {
-            Ok(_) => {
-                total_inserted += count;
-                tracing::debug!("Inserted chunk of {} emails", count);
-            }
-            Err(e) => {
-                // Log but continue - some might have been duplicates
-                tracing::warn!("Error inserting chunk: {:?}", e);
-            }
-        }
-    }
-
-    Ok(total_inserted)
-}
-
-/// Build an ActiveModel for a processed email
-fn build_active_model(user_id: i32, data: &ProcessedEmailData) -> processed_email::ActiveModel {
-    let closest_due_date = data
-        .extracted_tasks
-        .iter()
-        .filter_map(|t| {
-            t.due_date
-                .as_ref()
-                .and_then(|d| d.parse::<NaiveDateTime>().ok())
-        })
-        .min();
-
-    let extracted_tasks = if data.extracted_tasks.is_empty() {
-        ActiveValue::NotSet
-    } else {
-        let json_tasks: Vec<sea_orm::JsonValue> = data
-            .extracted_tasks
-            .iter()
-            .map(|t| serde_json::json!(t))
-            .collect();
-        ActiveValue::Set(Some(json_tasks))
-    };
-
-    let is_read = !data.email_data.label_ids.contains(&"UNREAD".to_string());
-
-    processed_email::ActiveModel {
-        id: ActiveValue::Set(data.email_data.id.clone()),
-        thread_id: ActiveValue::Set(data.email_data.thread_id.clone()),
-        user_id: ActiveValue::Set(user_id),
-        category: ActiveValue::Set(data.category.clone()),
-        ai_answer: ActiveValue::Set(data.ai_answer.clone()),
-        ai_confidence: ActiveValue::Set(data.ai_confidence.to_string()),
-        processed_at: ActiveValue::NotSet,
-        due_date: ActiveValue::Set(closest_due_date),
-        extracted_tasks,
-        history_id: ActiveValue::Set(sea_orm::prelude::Decimal::from(data.email_data.history_id)),
-        is_read: ActiveValue::Set(is_read),
-        tasks_done: ActiveValue::Set(false),
-        has_new_reply: ActiveValue::Set(false),
-        is_thread: ActiveValue::Set(false),
-        from: ActiveValue::Set(data.email_data.from.clone()),
-        subject: ActiveValue::Set(data.email_data.subject.clone()),
-        snippet: ActiveValue::Set(data.email_data.snippet.clone()),
-        internal_date: ActiveValue::Set(data.email_data.internal_date),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::{
+        email::rules::EmailRule,
+        model::labels::UtilityLabels,
+        state::email_scanner::shared::find_matching_rule,
+    };
+
     use super::*;
-    use crate::{model::labels::UtilityLabels, state::email_scanner::shared::find_matching_rule};
 
     #[test]
     fn test_find_matching_rule_high_confidence() {

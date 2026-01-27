@@ -4,11 +4,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 
-use super::processor::EmailProcessor;
+use super::{EmailProcessor, ProcessorStatus};
 use crate::model::user::UserWithAccountAccessAndUsage;
 use crate::ServerState;
-
-use super::processor::ProcessorStatus;
 
 type EmailProcessorMap = HashMap<String, Arc<EmailProcessor>>;
 

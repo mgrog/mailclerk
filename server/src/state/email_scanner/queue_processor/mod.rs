@@ -1,3 +1,5 @@
+pub mod processor_map;
+
 use std::{
     collections::HashSet,
     sync::{atomic::AtomicI64, Arc},
