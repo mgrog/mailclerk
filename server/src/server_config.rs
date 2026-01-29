@@ -59,8 +59,7 @@ pub struct TokenLimits {
     pub rate_limit_per_min: usize,
     pub refill_interval_ms: usize,
     pub refill_amount: usize,
-    pub estimated_token_usage_per_email: usize,
-    pub daily_user_quota: usize,
+    pub default_daily_user_limit: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]

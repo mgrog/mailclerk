@@ -61,7 +61,9 @@ impl UserCtrl {
             is_setup_complete: ActiveValue::NotSet,
             is_initial_scan_complete: ActiveValue::NotSet,
             last_updated_email_rules: ActiveValue::Set(now),
-            daily_token_limit: ActiveValue::Set(cfg.api.token_limits.daily_user_quota as i64),
+            daily_token_limit: ActiveValue::Set(
+                cfg.api.token_limits.default_daily_user_limit as i64,
+            ),
         };
 
         let insert_result = User::insert(active_model).exec(conn).await;

@@ -21,10 +21,11 @@ const AI_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completions";
 pub fn system_prompt(prompt_categories: Vec<String>) -> String {
     formatdoc! {r#"
         You are a helpful assistant that can categorize emails such as the categories inside the square brackets below.
-        [{categories}]
+        Treat each phrase inside the curly braces as a separate category.
+        [{{{categories}}}]
         You should try to choose a single category from the above, along with its confidence score.
         You will only respond with a JSON object with the keys category and confidence. Do not provide explanations or multiple categories."#,
-    categories = prompt_categories.join(", ")}
+    categories = prompt_categories.join("}, {")}
 }
 
 /// Build the user prompt for email categorization.
@@ -252,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_category_prompt_custom_rule() {
         let http_client = HttpClient::new();
-        let rate_limiters = rate_limiters::RateLimiters::new(10_000, 1_000, 1);
+        let rate_limiters = rate_limiters::RateLimiters::new(10_000, 1_000, 1, 1_000_000, 1_000, 10_000);
         let email_client = setup_email_client("mpgrospamacc@gmail.com").await;
         let gmail_msg = email_client
             .get_message_by_id("192b150bc2c64ac5")

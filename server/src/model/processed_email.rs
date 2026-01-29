@@ -9,7 +9,7 @@ pub struct ProcessedEmailCtrl;
 /// Cursor for feed pagination, encoding the last item's score and history_id
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedCursor {
-    pub score: sea_orm::prelude::Decimal,
+    pub score: i32,
     pub history_id: sea_orm::prelude::Decimal,
     /// Timestamp from the first request, used to keep priority scores stable across pages
     pub ts: chrono::DateTime<chrono::Utc>,
@@ -37,7 +37,7 @@ pub struct FeedEmail {
     pub snippet: Option<String>,
     pub subject: Option<String>,
     pub priority: Option<i32>,
-    pub priority_score: Decimal,
+    pub priority_score: i32,
 }
 
 impl ProcessedEmailCtrl {
@@ -62,36 +62,37 @@ impl ProcessedEmailCtrl {
                 CASE \
                     WHEN pe.due_date IS NULL THEN 0 \
                     WHEN pe.tasks_done = true THEN 0 \
-                    WHEN pe.due_date >= {ts} + INTERVAL '7 days' THEN -200 \
-                    WHEN pe.due_date >= {ts} THEN -200 + (EXTRACT(EPOCH FROM (pe.due_date - {ts})) / 86400) * 100 / 7 \
-                    WHEN pe.due_date >= {ts} - INTERVAL '7 days' THEN -300 \
+                    WHEN pe.due_date >= {ts} + INTERVAL '7 days' THEN 200 \
+                    WHEN pe.due_date >= {ts} THEN 300 - (EXTRACT(EPOCH FROM (pe.due_date - {ts})) / 86400) * 100 / 7 \
+                    WHEN pe.due_date >= {ts} - INTERVAL '7 days' THEN 300 \
                     ELSE 0 \
                 END \
             ) + \
             CASE \
-                WHEN pe.is_read = false THEN -10 \
+                WHEN pe.is_read = true THEN -90 \
                 ELSE 0 \
             END + \
             CASE \
-                WHEN pe.has_new_reply = true THEN -200 \
+                WHEN pe.has_new_reply = true THEN 200 \
                 ELSE 0 \
             END + \
-            COALESCE((4 - uer.priority) * 100, 200)",
+            COALESCE((uer.priority) * 100, 200)",
             ts = reference_time,
         )
     }
 
     /// Get processed emails for a user sorted by weighted priority score with cursor pagination.
     ///
-    /// Score calculation (lower score = higher priority):
-    /// - Base score starts at 0, penalties are subtracted based on urgency factors
-    /// - Due date penalty:
+    /// Score calculation (higher score = higher priority):
+    /// - Base score starts at 0, bonuses are added based on urgency factors
+    /// - Due date bonus:
     ///   - No due date or tasks_done: 0
-    ///   - 0-7 days before due date: linear from -200 to -300
-    ///   - 0-7 days overdue: -200
+    ///   - 7+ days before due date: +200
+    ///   - 0-7 days before due date: linear from +200 to +300 (closer = higher)
+    ///   - 0-7 days overdue: +300
     ///   - 7+ days overdue: 0
-    /// - is_read = false: -10
-    /// - has_new_reply = true: -200
+    /// - is_read = false: +10
+    /// - has_new_reply = true: +200
     /// - user_email_rule.priority: +(4 - priority) * 100
     ///
     /// Returns (emails, reference_timestamp) where reference_timestamp should be used
@@ -112,7 +113,7 @@ impl ProcessedEmailCtrl {
             .as_ref()
             .map(|c| {
                 format!(
-                    "AND (({ps}) > {score} OR (({ps}) = {score} AND pe.history_id < {hid}))",
+                    "AND (({ps}) < {score} OR (({ps}) = {score} AND pe.history_id < {hid}))",
                     ps = priority_score_sql,
                     score = c.score,
                     hid = c.history_id
@@ -142,7 +143,7 @@ impl ProcessedEmailCtrl {
                 pe.snippet,
                 pe.subject,
                 uer.priority,
-                ({priority_score}) AS priority_score
+                ({priority_score})::INTEGER AS priority_score
             FROM processed_email pe
             LEFT JOIN (
                 SELECT DISTINCT ON (mail_label) mail_label, priority
@@ -152,7 +153,7 @@ impl ProcessedEmailCtrl {
             ) uer ON uer.mail_label = pe.category
             WHERE pe.user_id = $1
             {cursor_filter}
-            ORDER BY priority_score ASC, pe.history_id DESC
+            ORDER BY priority_score DESC, pe.history_id DESC
             LIMIT $2
             "#,
             priority_score = priority_score_sql,

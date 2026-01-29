@@ -516,7 +516,7 @@ impl EmailProcessor {
         let email_text = simplified.to_string();
         let estimated_tokens = tokenizer::token_count(&email_text).unwrap_or(0) as i64;
         let quota_buffer = self.daily_token_limit / 100; // 1% buffer
-        if estimated_tokens > self.quota_remaining() + quota_buffer {
+        if estimated_tokens > self.quota_remaining().saturating_add(quota_buffer) {
             tracing::info!(
                 "Estimated token usage ({}) exceeds remaining quota ({}) by more than 1% for {}. Cancelling processor.",
                 estimated_tokens,
@@ -527,7 +527,9 @@ impl EmailProcessor {
             return Ok(());
         }
 
+        // Acquire both request and token rate limits
         self.rate_limiters.acquire_one().await;
+        self.rate_limiters.acquire_tokens(estimated_tokens as usize).await;
 
         let PromptReturnData {
             email_rule,
@@ -542,6 +544,7 @@ impl EmailProcessor {
         // Extract tasks if the matched rule has extract_tasks enabled
         if email_rule.extract_tasks {
             self.rate_limiters.acquire_one().await;
+            self.rate_limiters.acquire_tokens(estimated_tokens as usize).await;
             match task_extraction::extract_tasks_from_email(
                 &self.http_client,
                 &self.rate_limiters,

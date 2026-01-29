@@ -37,7 +37,7 @@ model processed_email {
   is_thread       Boolean
   has_new_reply   Boolean
   thread_id       String?   @db.VarChar()
-  is_read         Boolean   @default(false)
+  is_read         Boolean
   history_id      Decimal   @db.Decimal(20, 0)
   internal_date   BigInt
   from            String?
