@@ -30,14 +30,13 @@ use std::{
 };
 
 use auth::session_store::AuthSessionStore;
-use axum::{extract::FromRef, routing::get, Router};
+use axum::{extract::FromRef, Router};
 use db_core::prelude::*;
 use mimalloc::MiMalloc;
 use observability::ScanTracker;
 use prompt::TaskQueue;
 use rate_limiters::RateLimiters;
 use reqwest::Certificate;
-use routes::{handlers::scan, AppRouter};
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use server_config::get_cert;
 use state::email_scanner::ActiveEmailProcessorMap;
@@ -116,7 +115,6 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::Layer::default().with_ansi(false))
         .init();
 
-    let router = AppRouter::create(state.clone());
     let email_processing_map = ActiveEmailProcessorMap::new(state.clone());
 
     let mut scheduler = JobScheduler::new()
@@ -232,63 +230,52 @@ async fn main() -> anyhow::Result<()> {
         })
     }));
 
-    let scanner_only = env::var("SCANNER_ONLY").is_ok_and(|v| v == "true");
-    let server_only = env::var("SERVER_ONLY").is_ok_and(|v| v == "true");
+    let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "server".to_string());
+    println!("RUN_MODE={}", run_mode);
 
-    println!(
-        "SCANNER_ONLY={:?}, SERVER_ONLY={:?}",
-        env::var("SCANNER_ONLY"),
-        env::var("SERVER_ONLY")
-    );
-
-    if server_only {
-        println!("-------- RUNNING SERVER ONLY --------");
-        run_server(router, scheduler).await.unwrap();
-        return Ok(());
-    }
-
-    println!("Starting scheduler...");
-    match scheduler.start().await {
-        Ok(_) => {
-            println!("-------- SCHEDULER STARTED --------");
+    match run_mode.as_str() {
+        "server" => {
+            use routes::ServerRouter;
+            println!("-------- RUNNING SERVER MODE --------");
+            let router = ServerRouter::create(state.clone());
+            run_server(router, scheduler).await.unwrap();
         }
-        Err(e) => {
-            println!("Failed to start scheduler: {:?}", e);
-        }
-    }
+        "scanner" => {
+            use routes::ScannerRouter;
+            println!("-------- RUNNING SCANNER MODE --------");
 
-    println!("Creating processing watch handle...");
-    let processing_watch_handle = state::tasks::watch(
-        state.task_queue.clone(),
-        email_processing_map.clone(),
-        state.rate_limiters.clone(),
-        state.scan_tracker.clone(),
-    );
-    if scanner_only {
-        println!("-------- RUNNING SCANNER ONLY --------");
-        let health_router = Router::new().route("/", get(|| async { "OK" })).route(
-            "/scan/initial",
-            get(scan::start_initial_scan_ws).with_state(state.clone()),
-        );
-        let server_handle = run_server(health_router, scheduler);
-        tokio::select! {
-            _ = server_handle => {
-                tracing::info!("Server shut down, exiting");
+            println!("Starting scheduler...");
+            match scheduler.start().await {
+                Ok(_) => {
+                    println!("-------- SCHEDULER STARTED --------");
+                }
+                Err(e) => {
+                    println!("Failed to start scheduler: {:?}", e);
+                }
             }
-            _ = processing_watch_handle => {
-                tracing::info!("Processing watch ended");
+
+            println!("Creating processing watch handle...");
+            let processing_watch_handle = state::tasks::watch(
+                state.task_queue.clone(),
+                email_processing_map.clone(),
+                state.rate_limiters.clone(),
+                state.scan_tracker.clone(),
+            );
+
+            let router = ScannerRouter::create(state.clone());
+            let server_handle = run_server(router, scheduler);
+
+            tokio::select! {
+                _ = server_handle => {
+                    tracing::info!("Server shut down, exiting");
+                }
+                _ = processing_watch_handle => {
+                    tracing::info!("Processing watch ended");
+                }
             }
         }
-        return Ok(());
-    }
-
-    let server_handle = run_server(router, scheduler);
-    tokio::select! {
-        _ = server_handle => {
-            tracing::info!("Server shut down, exiting");
-        }
-        _ = processing_watch_handle => {
-            tracing::info!("Processing watch ended");
+        _ => {
+            panic!("Invalid RUN_MODE: {}. Must be 'server' or 'scanner'", run_mode);
         }
     }
 
@@ -443,7 +430,7 @@ mod tests {
             email_client_cache,
         };
 
-        let router = AppRouter::create(state.clone());
+        let router = routes::ServerRouter::create(state.clone());
 
         // Bind to port 0 to get a random available port
         let listener = TcpListener::bind("127.0.0.1:0").await?;

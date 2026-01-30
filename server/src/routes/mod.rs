@@ -1,4 +1,4 @@
-mod app_router;
 pub mod handlers;
+pub mod router;
 
-pub use app_router::*;
+pub use router::*;

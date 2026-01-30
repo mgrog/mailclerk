@@ -2,8 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::DefaultBodyLimit,
-    http::StatusCode,
-    response::IntoResponse,
     routing::{get, post, put},
     Router,
 };
@@ -14,13 +12,14 @@ use tower_http::cors::CorsLayer;
 
 use crate::{request_tracing, ServerState};
 
+use super::handler_404;
 #[cfg(debug_assertions)]
-use super::handlers::dev_only;
-use super::handlers::{account_connection, auth, email, gmail_labels, user, user_email_rule};
+use crate::routes::handlers::dev_only;
+use crate::routes::handlers::{account_connection, auth, email, gmail_labels, user, user_email_rule};
 
-pub struct AppRouter;
+pub struct ServerRouter;
 
-impl AppRouter {
+impl ServerRouter {
     pub fn create(state: ServerState) -> Router {
         let origins = [
             "https://mailclerk.io",
@@ -123,8 +122,4 @@ impl AppRouter {
 
         router
     }
-}
-
-pub async fn handler_404() -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, "Route does not exist")
 }
