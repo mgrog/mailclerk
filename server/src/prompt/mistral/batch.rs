@@ -2,14 +2,70 @@
 //!
 //! This module provides functionality to process large batches of emails
 //! using Mistral's batch inference API for cost-effective processing.
-//! Uses inline batching (for under 10k requests) rather than file uploads.
+//! Uses file upload for batch requests.
 
 use anyhow::{anyhow, Context};
+use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
+use thiserror::Error;
 
 use crate::{server_config::cfg, HttpClient};
+
+use super::parse_category_answer;
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Structured error response from Mistral API
+#[derive(Debug, Clone, Deserialize)]
+pub struct MistralApiError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub error_type: Option<String>,
+    pub param: Option<String>,
+    pub code: Option<String>,
+}
+
+/// Errors that can occur when creating an inline batch job
+#[derive(Debug, Error)]
+pub enum CreateBatchJobError {
+    #[error("Request failed: {0}")]
+    RequestFailed(#[from] reqwest::Error),
+
+    #[error("Invalid request: {0}")]
+    InvalidRequest(MistralApiError),
+
+    #[error("Authentication failed: {0}")]
+    AuthenticationError(MistralApiError),
+
+    #[error("Rate limited: {0}")]
+    RateLimited(MistralApiError),
+
+    #[error("Server error: {0}")]
+    ServerError(MistralApiError),
+
+    #[error("API error (HTTP {status}): {message}")]
+    ApiError { status: u16, message: String },
+
+    #[error("Failed to parse response: {0}")]
+    ParseError(#[from] serde_json::Error),
+}
+
+impl std::fmt::Display for MistralApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)?;
+        if let Some(ref param) = self.param {
+            write!(f, " (param: {})", param)?;
+        }
+        if let Some(ref code) = self.code {
+            write!(f, " [code: {}]", code)?;
+        }
+        Ok(())
+    }
+}
 
 const BATCH_JOBS_ENDPOINT: &str = "https://api.mistral.ai/v1/batch/jobs";
 const FILES_ENDPOINT: &str = "https://api.mistral.ai/v1/files";
@@ -193,7 +249,8 @@ pub struct BatchResultError {
 #[derive(Debug, Clone)]
 pub struct CategoryResult {
     pub email_id: String,
-    pub category: String,
+    pub general_category: Option<String>,
+    pub specific_category: String,
     pub confidence: f32,
     pub token_usage: i64,
 }
@@ -202,7 +259,7 @@ pub struct CategoryResult {
 #[derive(Debug, Clone)]
 pub struct TaskExtractionResult {
     pub email_id: String,
-    pub tasks: Vec<super::task_extraction::ExtractedTask>,
+    pub tasks: Vec<super::super::task_extraction::ExtractedTask>,
     pub token_usage: i64,
 }
 
@@ -210,16 +267,93 @@ pub struct TaskExtractionResult {
 // API Client Functions
 // ============================================================================
 
-/// Create a batch job with inline requests (no file upload needed)
-pub async fn create_inline_batch_job(
+/// Response from file upload endpoint
+#[derive(Debug, Clone, Deserialize)]
+struct FileUploadResponse {
+    id: String,
+}
+
+/// Create JSONL content from batch requests (in memory)
+fn create_jsonl_content(requests: &[BatchRequest]) -> Result<Vec<u8>, serde_json::Error> {
+    let mut content = Vec::new();
+    for request in requests {
+        let line = serde_json::to_string(request)?;
+        content.extend_from_slice(line.as_bytes());
+        content.push(b'\n');
+    }
+    Ok(content)
+}
+
+/// Upload JSONL content to Mistral's files API
+async fn upload_batch_file(
+    http_client: &HttpClient,
+    jsonl_content: Vec<u8>,
+) -> Result<String, CreateBatchJobError> {
+    let file_part = multipart::Part::bytes(jsonl_content)
+        .file_name("batch.jsonl")
+        .mime_str("application/jsonl")
+        .map_err(|e| CreateBatchJobError::ApiError {
+            status: 0,
+            message: format!("Failed to create multipart: {}", e),
+        })?;
+
+    let form = multipart::Form::new()
+        .text("purpose", "batch")
+        .part("file", file_part);
+
+    let resp = http_client
+        .post(FILES_ENDPOINT)
+        .bearer_auth(&cfg.api.key)
+        .multipart(form)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let error_body = resp.text().await.unwrap_or_default();
+
+        if let Ok(api_error) = serde_json::from_str::<MistralApiError>(&error_body) {
+            return Err(match status {
+                400 => CreateBatchJobError::InvalidRequest(api_error),
+                401 => CreateBatchJobError::AuthenticationError(api_error),
+                429 => CreateBatchJobError::RateLimited(api_error),
+                500..=599 => CreateBatchJobError::ServerError(api_error),
+                _ => CreateBatchJobError::ApiError {
+                    status,
+                    message: api_error.message,
+                },
+            });
+        }
+
+        return Err(CreateBatchJobError::ApiError {
+            status,
+            message: error_body,
+        });
+    }
+
+    let upload_response: FileUploadResponse = resp.json().await?;
+    Ok(upload_response.id)
+}
+
+/// Create a batch job by uploading a JSONL file
+pub async fn create_batch_job(
     http_client: &HttpClient,
     requests: Vec<BatchRequest>,
-) -> anyhow::Result<BatchJob> {
+) -> Result<BatchJob, CreateBatchJobError> {
+    // Create JSONL content in memory
+    let jsonl_content = create_jsonl_content(&requests)?;
+
+    // Upload to Mistral
+    let file_id = upload_batch_file(http_client, jsonl_content).await?;
+    tracing::debug!("Uploaded batch file with id: {}", file_id);
+
+    // Create batch job with the uploaded file
     let resp = http_client
         .post(BATCH_JOBS_ENDPOINT)
         .bearer_auth(&cfg.api.key)
+        .header("Accept", "application/json")
         .json(&json!({
-            "requests": requests,
+            "input_files": [file_id],
             "model": &cfg.model.id,
             "endpoint": "/v1/chat/completions",
             "metadata": {
@@ -227,17 +361,33 @@ pub async fn create_inline_batch_job(
             }
         }))
         .send()
-        .await
-        .context("Failed to create batch job")?;
+        .await?;
 
     if !resp.status().is_success() {
+        let status = resp.status().as_u16();
         let error_body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("Batch job creation failed: {}", error_body));
+
+        // Try to parse as JSON error from Mistral API
+        if let Ok(api_error) = serde_json::from_str::<MistralApiError>(&error_body) {
+            return Err(match status {
+                400 => CreateBatchJobError::InvalidRequest(api_error),
+                401 => CreateBatchJobError::AuthenticationError(api_error),
+                429 => CreateBatchJobError::RateLimited(api_error),
+                500..=599 => CreateBatchJobError::ServerError(api_error),
+                _ => CreateBatchJobError::ApiError {
+                    status,
+                    message: api_error.message,
+                },
+            });
+        }
+
+        return Err(CreateBatchJobError::ApiError {
+            status,
+            message: error_body,
+        });
     }
 
-    resp.json::<BatchJob>()
-        .await
-        .context("Failed to parse batch job response")
+    Ok(resp.json::<BatchJob>().await?)
 }
 
 /// Get the current status of a batch job
@@ -262,7 +412,14 @@ pub async fn get_batch_job(http_client: &HttpClient, job_id: &str) -> anyhow::Re
 }
 
 /// Wait for a batch job to complete, polling at regular intervals
-pub async fn wait_for_job(http_client: &HttpClient, job_id: &str) -> anyhow::Result<BatchJob> {
+///
+/// Optionally accepts a tracking function that will be called with the number
+/// of completed requests on each poll.
+pub async fn wait_for_job(
+    http_client: &HttpClient,
+    job_id: &str,
+    track_fn: Option<&(dyn Fn(u64) + Send + Sync)>,
+) -> anyhow::Result<BatchJob> {
     let start = std::time::Instant::now();
 
     loop {
@@ -275,6 +432,10 @@ pub async fn wait_for_job(http_client: &HttpClient, job_id: &str) -> anyhow::Res
             job.completed_requests,
             job.total_requests
         );
+
+        if let Some(f) = track_fn {
+            f(job.completed_requests);
+        }
 
         if job.status.is_terminal() {
             return Ok(job);
@@ -311,7 +472,10 @@ pub async fn download_results(
         return Err(anyhow!("Failed to download results: {}", error_body));
     }
 
-    let content = resp.text().await.context("Failed to read results content")?;
+    let content = resp
+        .text()
+        .await
+        .context("Failed to read results content")?;
 
     // Parse JSONL
     let results: Vec<BatchResultLine> = content
@@ -329,6 +493,28 @@ pub async fn download_results(
         .collect();
 
     Ok(results)
+}
+
+/// Delete a file from Mistral's files API
+async fn delete_file(http_client: &HttpClient, file_id: &str) {
+    let url = format!("{}/{}", FILES_ENDPOINT, file_id);
+
+    match http_client
+        .delete(&url)
+        .bearer_auth(&cfg.api.key)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::debug!("Deleted file: {}", file_id);
+        }
+        Ok(resp) => {
+            tracing::warn!("Failed to delete file {}: HTTP {}", file_id, resp.status());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to delete file {}: {}", file_id, e);
+        }
+    }
 }
 
 /// Parse categorization results from batch output
@@ -353,14 +539,13 @@ pub fn parse_categorization_results(results: Vec<BatchResultLine>) -> Vec<Catego
             let total_tokens = usage.get("total_tokens")?.as_i64()?;
 
             // Parse the JSON response content
-            let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
-            let category = parsed.get("category")?.as_str()?.to_string();
-            let confidence = parsed.get("confidence")?.as_f64()? as f32;
+            let answer = parse_category_answer(content)?;
 
             Some(CategoryResult {
                 email_id: result.custom_id,
-                category,
-                confidence,
+                general_category: answer.general_category,
+                specific_category: answer.specific_category,
+                confidence: answer.confidence,
                 token_usage: total_tokens,
             })
         })
@@ -369,7 +554,7 @@ pub fn parse_categorization_results(results: Vec<BatchResultLine>) -> Vec<Catego
 
 /// Parse task extraction results from batch output
 pub fn parse_task_extraction_results(results: Vec<BatchResultLine>) -> Vec<TaskExtractionResult> {
-    use super::task_extraction::ExtractedTask;
+    use super::super::task_extraction::ExtractedTask;
 
     results
         .into_iter()
@@ -417,11 +602,15 @@ pub struct BatchJobResult {
     pub results: Vec<BatchResultLine>,
 }
 
-/// Run a complete batch job: create with inline requests, wait, download results
+/// Run a complete batch job: upload file, create job, wait, download results, cleanup
+///
+/// Optionally accepts a tracking function that will be called with the number
+/// of completed requests on each poll while waiting for the job.
 pub async fn run_batch_job(
     http_client: &HttpClient,
     requests: Vec<BatchRequest>,
     job_name: &str,
+    track_fn: Option<&(dyn Fn(u64) + Send + Sync)>,
 ) -> anyhow::Result<BatchJobResult> {
     if requests.is_empty() {
         return Ok(BatchJobResult {
@@ -436,15 +625,19 @@ pub async fn run_batch_job(
         requests.len()
     );
 
-    // Create job with inline requests
-    let job = create_inline_batch_job(http_client, requests).await?;
+    // Create job with file upload
+    let job = create_batch_job(http_client, requests).await?;
     let job_id = job.id.clone();
+    let input_files = job.input_files.clone();
     tracing::info!("Created batch job: {} (status: {:?})", job.id, job.status);
 
     // Wait for completion
-    let completed_job = wait_for_job(http_client, &job.id).await?;
+    let completed_job = wait_for_job(http_client, &job.id, track_fn).await?;
 
     if !completed_job.status.is_success() {
+        // Clean up input files even on failure
+        let deletions = input_files.iter().map(|id| delete_file(http_client, id));
+        futures::future::join_all(deletions).await;
         return Err(anyhow!(
             "Batch job {} failed with status: {:?}",
             job.id,
@@ -466,6 +659,14 @@ pub async fn run_batch_job(
 
     let results = download_results(http_client, &output_file_id).await?;
     tracing::info!("Downloaded {} results", results.len());
+
+    // Clean up files (input and output)
+    let deletions = input_files
+        .iter()
+        .map(|id| id.as_str())
+        .chain(std::iter::once(output_file_id.as_str()))
+        .map(|id| delete_file(http_client, id));
+    futures::future::join_all(deletions).await;
 
     Ok(BatchJobResult { job_id, results })
 }
@@ -504,7 +705,7 @@ mod tests {
             "response": {
                 "status_code": 200,
                 "body": {
-                    "choices": [{"message": {"content": "{\"category\": \"Newsletter\", \"confidence\": 0.95}"}}],
+                    "choices": [{"message": {"content": "{\"general_category\": \"newsletter\", \"specific_category\": \"Newsletter\", \"confidence\": 0.95}"}}],
                     "usage": {"total_tokens": 100}
                 }
             },
@@ -516,7 +717,8 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].email_id, "email456");
-        assert_eq!(parsed[0].category, "Newsletter");
+        assert_eq!(parsed[0].general_category.as_ref().unwrap(), "newsletter");
+        assert_eq!(parsed[0].specific_category, "Newsletter");
         assert!((parsed[0].confidence - 0.95).abs() < 0.01);
     }
 }

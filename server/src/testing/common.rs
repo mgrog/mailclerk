@@ -43,3 +43,10 @@ pub fn get_test_user_claims(email: &str) -> Claims {
         exp: Utc::now().timestamp() as usize + (5 * 60),
     }
 }
+
+pub fn dump_to_file(filename: &str, content: &str) {
+    let debug_dir = format!("{}/debug", env!("CARGO_MANIFEST_DIR"));
+    let _ = std::fs::create_dir_all(&debug_dir);
+    let path = format!("{}/{}_{}.txt", debug_dir, filename, Utc::now().timestamp_millis());
+    let _ = std::fs::write(&path, content);
+}

@@ -5,6 +5,7 @@ pub use super::email_embedding::Entity as EmailEmbedding;
 pub use super::email_training::Entity as EmailTraining;
 pub use super::processed_daily_summary::Entity as ProcessedDailySummary;
 pub use super::processed_email::Entity as ProcessedEmail;
+pub use super::system_email_rule::Entity as SystemEmailRule;
 pub use super::user::Entity as User;
 pub use super::user_account_access::Entity as UserAccountAccess;
 pub use super::user_email_rule::Entity as UserEmailRule;

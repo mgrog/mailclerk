@@ -25,6 +25,8 @@ pub enum ScanStatusUpdate {
     },
     Progress {
         phase: String,
+        fetched_emails: usize,
+        total_to_fetch: usize,
         total_emails: usize,
         processed_emails: usize,
         percentage: f32,
@@ -79,14 +81,21 @@ async fn handle_scan_socket(
         return;
     }
 
-    // Spawn the scan task
+    // Spawn the scan task with a channel to communicate the result
+    let (result_tx, mut result_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     let scan_state = state.clone();
     let scan_user = user.clone();
     let scan_tracker_clone = scan_tracker.clone();
     tokio::spawn(async move {
-        if let Err(e) = run_initial_scan_for_user(scan_state, scan_user, scan_tracker_clone).await {
-            tracing::error!("Initial scan failed for user {}: {:?}", user_id, e);
-        }
+        let result = run_initial_scan_for_user(scan_state, scan_user, scan_tracker_clone).await;
+        let send_result = match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::error!("Initial scan failed for user {}: {:?}", user_id, e);
+                Err(e.to_string())
+            }
+        };
+        let _ = result_tx.send(send_result);
     });
 
     // Poll for status updates
@@ -95,56 +104,64 @@ async fn handle_scan_socket(
         let mut interval = tokio::time::interval(Duration::from_millis(500));
         let mut last_phase: Option<String> = None;
         let mut last_processed: usize = 0;
+        let mut last_elapsed_secs: u64 = 0;
 
         loop {
-            interval.tick().await;
-
-            if let Some(entry) = poll_tracker.get_scan(user_id) {
-                let current_phase = format!("{}", entry.phase);
-                let current_processed = entry.progress.processed_emails;
-
-                // Only send update if something changed
-                if last_phase.as_ref() != Some(&current_phase)
-                    || last_processed != current_processed
-                {
-                    last_phase = Some(current_phase.clone());
-                    last_processed = current_processed;
-
-                    let update = ScanStatusUpdate::Progress {
-                        phase: entry.phase.short_name().to_string(),
-                        total_emails: entry.progress.total_emails,
-                        processed_emails: entry.progress.processed_emails,
-                        percentage: entry.progress.percentage(),
-                        elapsed_secs: entry.elapsed_secs(),
+            tokio::select! {
+                // Check if the scan task completed (success or failure)
+                result = &mut result_rx => {
+                    let final_msg = match result {
+                        Ok(Ok(())) => ScanStatusUpdate::Complete {
+                            total_emails: last_processed,
+                            elapsed_secs: last_elapsed_secs,
+                        },
+                        Ok(Err(error)) => ScanStatusUpdate::Failed { error },
+                        Err(_) => ScanStatusUpdate::Failed {
+                            error: "Scan task was cancelled".to_string(),
+                        },
                     };
 
-                    if let Err(e) = sender
-                        .send(Message::Text(serde_json::to_string(&update).unwrap()))
-                        .await
-                    {
-                        tracing::error!("Failed to send progress update: {:?}", e);
-                        break;
+                    let _ = sender
+                        .send(Message::Text(serde_json::to_string(&final_msg).unwrap()))
+                        .await;
+                    let _ = sender.close().await;
+                    break;
+                }
+
+                // Poll for progress updates
+                _ = interval.tick() => {
+                    if let Some(entry) = poll_tracker.get_scan(user_id) {
+                        let current_phase = format!("{}", entry.phase);
+                        let current_processed = entry.scan_progress.current;
+
+                        // Only send update if something changed
+                        if last_phase.as_ref() != Some(&current_phase)
+                            || last_processed != current_processed
+                        {
+                            last_phase = Some(current_phase.clone());
+                            last_processed = current_processed;
+                            last_elapsed_secs = entry.elapsed_secs();
+
+                            let update = ScanStatusUpdate::Progress {
+                                phase: entry.phase.short_name().to_string(),
+                                fetched_emails: entry.fetch_progress.current,
+                                total_to_fetch: entry.fetch_progress.total,
+                                total_emails: entry.scan_progress.total,
+                                processed_emails: entry.scan_progress.current,
+                                percentage: entry.scan_progress.percentage(),
+                                elapsed_secs: entry.elapsed_secs(),
+                            };
+
+                            if let Err(e) = sender
+                                .send(Message::Text(serde_json::to_string(&update).unwrap()))
+                                .await
+                            {
+                                tracing::error!("Failed to send progress update: {:?}", e);
+                                break;
+                            }
+                        }
                     }
                 }
-            } else {
-                // Scan is no longer being tracked - it's complete or failed
-                // Check if there was a phase set before removal
-                let final_msg = if last_phase.as_deref() == Some("Failed") {
-                    ScanStatusUpdate::Failed {
-                        error: "Scan failed".to_string(),
-                    }
-                } else {
-                    ScanStatusUpdate::Complete {
-                        total_emails: last_processed,
-                        elapsed_secs: 0, // We don't have this info after removal
-                    }
-                };
-
-                let _ = sender
-                    .send(Message::Text(serde_json::to_string(&final_msg).unwrap()))
-                    .await;
-                let _ = sender.close().await;
-                break;
             }
         }
     });

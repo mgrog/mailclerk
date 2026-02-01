@@ -21,26 +21,27 @@ use tokio::sync::watch;
 use crate::{
     email::{
         client::{EmailClient, MessageListOptions},
-        rules::UserEmailRules,
+        rules::{SystemEmailRules, UserEmailRules},
         simplified_message::SimplifiedMessage,
     },
-    state::email_scanner::shared::{EmailScanData, ProcessedEmailData, PromptReturnData},
+    state::email_scanner::shared::{
+        find_matching_rule_system, find_matching_rule_user, EmailScanData, ProcessedEmailData,
+        PromptReturnData,
+    },
 };
 use crate::{
     error::{extract_database_error_code, AppError, AppResult, DatabaseErrorCode},
     model::{
-        processed_email::ProcessedEmailCtrl, user::UserWithAccountAccessAndUsage,
-        user_token_usage::UserTokenUsageStatsCtrl,
+        labels::UtilityLabels, processed_email::ProcessedEmailCtrl,
+        user::UserWithAccountAccessAndUsage, user_token_usage::UserTokenUsageStatsCtrl,
     },
     prompt::{
-        mistral::{self, CategoryPromptResponse},
+        mistral::{self, CategoryChatResponse},
         task_extraction, Priority, QueueEntry, TaskData, TaskQueue,
     },
     rate_limiters::RateLimiters,
     HttpClient, ServerState,
 };
-
-use super::shared::find_matching_rule;
 
 #[derive(Debug, Clone, Default)]
 struct FetchOptions {
@@ -94,6 +95,7 @@ pub struct EmailProcessor {
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
     task_queue: TaskQueue,
+    system_email_rules: Arc<SystemEmailRules>,
     user_email_rules: Arc<UserEmailRules>,
     interrupt_channel: (
         tokio::sync::watch::Sender<InterruptSignal>,
@@ -133,6 +135,7 @@ impl EmailProcessor {
         // println!("User's remaining quota: {}", remaining_quota);
         // -- DEBUG
 
+        let system_email_rules = SystemEmailRules::from_db(&conn).await?;
         let user_email_rules = UserEmailRules::from_user(&conn, user_id).await?;
         let interrupt_channel = watch::channel(InterruptSignal::Run);
 
@@ -150,6 +153,7 @@ impl EmailProcessor {
             conn,
             rate_limiters,
             task_queue,
+            system_email_rules: Arc::new(system_email_rules),
             user_email_rules: Arc::new(user_email_rules),
             interrupt_channel,
         };
@@ -311,32 +315,74 @@ impl EmailProcessor {
         &self,
         email_message: &SimplifiedMessage,
     ) -> anyhow::Result<PromptReturnData> {
-        let CategoryPromptResponse {
-            category: ai_answer,
-            confidence,
-            token_usage,
-        } = mistral::send_category_prompt(
+        // First pass: system categorization (with heuristics)
+        let system_response = mistral::on_demand::send_category_prompt(
             &self.http_client,
             &self.rate_limiters,
             email_message,
-            &self.user_email_rules,
+            self.system_email_rules.as_ref(),
         )
         .await
-        .map_err(|e| anyhow!("Error sending prompt: {e}"))?;
+        .map_err(|e| anyhow!("Error sending system prompt: {e}"))?;
 
-        let (matching_rule, heuristics_used) = find_matching_rule(
-            &ai_answer,
-            confidence,
-            &self.user_email_rules,
+        let (system_rule, heuristics_used) = find_matching_rule_system(
+            system_response.general_category.as_deref(),
+            &system_response.specific_category,
+            system_response.confidence,
+            &self.system_email_rules,
             email_message.from.as_ref(),
         );
 
+        // Check if we should do second pass
+        // Skip if: no user rules, or system label not relevant to any user rule (and not Unknown)
+        let has_user_rules = !self.user_email_rules.data().is_empty();
+        let is_relevant = system_rule.mail_label == UtilityLabels::Uncategorized.as_str()
+            || self
+                .user_email_rules
+                .is_label_relevant(&system_rule.mail_label);
+
+        if has_user_rules && is_relevant {
+            // Second pass: user categorization (no heuristics)
+            let user_response = mistral::on_demand::send_category_prompt(
+                &self.http_client,
+                &self.rate_limiters,
+                email_message,
+                self.user_email_rules.as_ref(),
+            )
+            .await
+            .map_err(|e| anyhow!("Error sending user prompt: {e}"))?;
+
+            // User rule with >0.95 confidence overrides system
+            if user_response.confidence > 0.95 {
+                let user_rule = find_matching_rule_user(
+                    &user_response.specific_category,
+                    &self.user_email_rules,
+                );
+                return Ok(PromptReturnData {
+                    email_rule: user_rule,
+                    ai_answer: user_response.specific_category,
+                    ai_confidence: user_response.confidence,
+                    heuristics_used: false,
+                    token_usage: system_response.token_usage + user_response.token_usage,
+                });
+            }
+            // User confidence too low, still return system but account for token usage
+            return Ok(PromptReturnData {
+                email_rule: system_rule,
+                ai_answer: system_response.specific_category,
+                ai_confidence: system_response.confidence,
+                heuristics_used,
+                token_usage: system_response.token_usage + user_response.token_usage,
+            });
+        }
+
+        // Return system categorization
         Ok(PromptReturnData {
-            email_rule: matching_rule,
-            ai_answer,
-            ai_confidence: confidence,
+            email_rule: system_rule,
+            ai_answer: system_response.specific_category,
+            ai_confidence: system_response.confidence,
             heuristics_used,
-            token_usage,
+            token_usage: system_response.token_usage,
         })
     }
 
@@ -529,7 +575,9 @@ impl EmailProcessor {
 
         // Acquire both request and token rate limits
         self.rate_limiters.acquire_one().await;
-        self.rate_limiters.acquire_tokens(estimated_tokens as usize).await;
+        self.rate_limiters
+            .acquire_tokens(estimated_tokens as usize)
+            .await;
 
         let PromptReturnData {
             email_rule,
@@ -544,7 +592,9 @@ impl EmailProcessor {
         // Extract tasks if the matched rule has extract_tasks enabled
         if email_rule.extract_tasks {
             self.rate_limiters.acquire_one().await;
-            self.rate_limiters.acquire_tokens(estimated_tokens as usize).await;
+            self.rate_limiters
+                .acquire_tokens(estimated_tokens as usize)
+                .await;
             match task_extraction::extract_tasks_from_email(
                 &self.http_client,
                 &self.rate_limiters,

@@ -42,7 +42,7 @@ pub async fn test(
 
     let simplified_msg = SimplifiedMessage::from_string(email_content);
 
-    let response = prompt::mistral::send_category_prompt(
+    let response = prompt::mistral::on_demand::send_category_prompt(
         &http_client,
         &rate_limiters,
         &simplified_msg,
@@ -50,17 +50,17 @@ pub async fn test(
     )
     .await?;
 
-    let result = if response.category == email_summary {
+    let result = if response.specific_category == email_summary {
         UserEmailRuleResponse {
             kind: Kind::Success,
             message: "Category matches expected".to_string(),
-            ai_response: response.category,
+            ai_response: response.specific_category,
         }
     } else {
         UserEmailRuleResponse {
             kind: Kind::Failure,
             message: "Category does not match expected".to_string(),
-            ai_response: response.category,
+            ai_response: response.specific_category,
         }
     };
 

@@ -9,9 +9,12 @@ use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait};
 
 use crate::{
     db_core::prelude::*,
-    email::rules::UserEmailRules,
-    prompt::{mistral, mistral_batch, task_extraction},
-    state::email_scanner::shared::{EmailScanData, ProcessedEmailData},
+    email::rules::{EmailRules, UserEmailRules, UNKNOWN_RULE},
+    model::labels::UtilityLabels,
+    prompt::{mistral, task_extraction},
+    state::email_scanner::shared::{
+        CategorizationResult, CategorizationSource, EmailScanData, ProcessedEmailData,
+    },
     HttpClient,
 };
 
@@ -21,13 +24,13 @@ pub use crate::prompt::task_extraction::task_extraction_user_prompt;
 /// Result from a categorization batch including job ID
 pub struct CategorizationBatchResult {
     pub job_id: String,
-    pub results: Vec<mistral_batch::CategoryResult>,
+    pub results: Vec<mistral::batch::CategoryResult>,
 }
 
 /// Result from a task extraction batch including job ID
 pub struct TaskExtractionBatchResult {
     pub job_id: String,
-    pub results: Vec<mistral_batch::TaskExtractionResult>,
+    pub results: Vec<mistral::batch::TaskExtractionResult>,
 }
 
 /// Chunk size for batch database inserts
@@ -41,28 +44,31 @@ pub const DB_INSERT_CHUNK_SIZE: usize = 1000;
 /// # Arguments
 /// * `http_client` - HTTP client for API requests
 /// * `emails` - Slice of emails to categorize
-/// * `user_email_rules` - User's email rules for generating the system prompt
+/// * `email_rules` - Email rules (system or user) for generating the system prompt
 /// * `job_name` - Name for the batch job (for logging/tracking)
+/// * `track_fn` - Optional tracking function called with completed request count on each poll
 ///
 /// # Returns
 /// Categorization batch result containing job_id and results with email_id, category, and confidence
-pub async fn run_categorization_batch(
+pub async fn run_categorization_batch<R: EmailRules>(
     http_client: &HttpClient,
     emails: &[EmailScanData],
-    user_email_rules: &UserEmailRules,
+    email_rules: &R,
     job_name: &str,
+    track_fn: Option<&(dyn Fn(u64) + Send + Sync)>,
 ) -> anyhow::Result<CategorizationBatchResult> {
-    let system_prompt = mistral::system_prompt(user_email_rules.get_prompt_categories());
+    let system_prompt = mistral::system_prompt(email_rules.get_prompt_input());
 
-    let requests: Vec<mistral_batch::BatchRequest> = emails
+    let requests: Vec<mistral::batch::BatchRequest> = emails
         .iter()
         .map(|email| {
             let user_content = categorization_user_prompt(
                 email.subject.as_deref().unwrap_or(""),
+                email.from.as_deref().unwrap_or(""),
                 email.body.as_deref().unwrap_or(""),
             );
 
-            mistral_batch::BatchRequest::for_categorization(
+            mistral::batch::BatchRequest::for_categorization(
                 email.id.clone(),
                 system_prompt.clone(),
                 user_content,
@@ -70,12 +76,95 @@ pub async fn run_categorization_batch(
         })
         .collect();
 
-    let batch_result = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
+    let batch_result =
+        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn).await?;
 
     Ok(CategorizationBatchResult {
         job_id: batch_result.job_id,
-        results: mistral_batch::parse_categorization_results(batch_result.results),
+        results: mistral::batch::parse_categorization_results(batch_result.results),
     })
+}
+
+/// Filter emails for second pass based on user rules' matching_labels.
+///
+/// Emails are included in the second pass if:
+/// - They were categorized as "Unknown"/uncategorized in the first pass, OR
+/// - Their system-assigned label is in any user rule's matching_labels
+///
+/// # Arguments
+/// * `emails` - All emails from the first pass
+/// * `system_results` - Results from the first pass (system categorization)
+/// * `user_rules` - User email rules with matching_labels
+///
+/// # Returns
+/// Vector of references to emails that should go through the second pass
+pub fn filter_for_second_pass<'a>(
+    emails: &'a [EmailScanData],
+    system_results: &[CategorizationResult],
+    user_rules: &UserEmailRules,
+) -> Vec<&'a EmailScanData> {
+    // Pre-compute matching labels for efficient lookup
+    let matching_labels = user_rules.get_matching_system_labels();
+    let uncategorized_label = UtilityLabels::Uncategorized.as_str();
+
+    emails
+        .iter()
+        .filter(|email| {
+            system_results
+                .iter()
+                .find(|r| r.email_id == email.id)
+                .map(|r| {
+                    // Include if:
+                    // 1. Email was categorized as "Unknown"/uncategorized OR
+                    // 2. System label is in any user rule's matching_labels
+                    r.label == uncategorized_label || matching_labels.contains(&r.label)
+                })
+                .unwrap_or(true) // Include if no first pass result (shouldn't happen)
+        })
+        .collect()
+}
+
+/// Merge first and second pass categorization results.
+///
+/// User rules with confidence > 0.95 replace system categorization.
+///
+/// # Arguments
+/// * `system_results` - Results from the first pass (system categorization)
+/// * `user_results` - Results from the second pass (user categorization)
+///
+/// # Returns
+/// Vector of final categorization results after merging
+pub fn merge_categorization_results(
+    system_results: Vec<CategorizationResult>,
+    user_results: Vec<CategorizationResult>,
+) -> Vec<CategorizationResult> {
+    const USER_OVERRIDE_THRESHOLD: f32 = 0.95;
+
+    system_results
+        .into_iter()
+        .map(|system_result| {
+            // Check if there's a second pass result for this email
+            if let Some(user_result) = user_results
+                .iter()
+                .find(|u| u.email_id == system_result.email_id)
+            {
+                // User rule with high confidence overrides system
+                if user_result.confidence > USER_OVERRIDE_THRESHOLD {
+                    return CategorizationResult {
+                        email_id: system_result.email_id,
+                        category: user_result.category.clone(),
+                        confidence: user_result.confidence,
+                        label: user_result.label.clone(),
+                        email_rule: user_result.email_rule.clone(),
+                        source: CategorizationSource::User,
+                    };
+                }
+            }
+
+            // Keep system categorization
+            system_result
+        })
+        .collect()
 }
 
 /// Run batch task extraction for a collection of emails.
@@ -87,6 +176,7 @@ pub async fn run_categorization_batch(
 /// * `http_client` - HTTP client for API requests
 /// * `emails` - Slice of email references to extract tasks from
 /// * `job_name` - Name for the batch job (for logging/tracking)
+/// * `track_fn` - Optional tracking function called with completed request count on each poll
 ///
 /// # Returns
 /// Task extraction batch result containing job_id and results with email_id and extracted tasks
@@ -94,10 +184,11 @@ pub async fn run_task_extraction_batch(
     http_client: &HttpClient,
     emails: &[&EmailScanData],
     job_name: &str,
+    track_fn: Option<&(dyn Fn(u64) + Send + Sync)>,
 ) -> anyhow::Result<TaskExtractionBatchResult> {
     let system_prompt = task_extraction::system_prompt();
 
-    let requests: Vec<mistral_batch::BatchRequest> = emails
+    let requests: Vec<mistral::batch::BatchRequest> = emails
         .iter()
         .map(|email| {
             let user_content = task_extraction_user_prompt(
@@ -105,7 +196,7 @@ pub async fn run_task_extraction_batch(
                 email.body.as_deref().unwrap_or(""),
             );
 
-            mistral_batch::BatchRequest::for_task_extraction(
+            mistral::batch::BatchRequest::for_task_extraction(
                 email.id.clone(),
                 system_prompt.clone(),
                 user_content,
@@ -113,11 +204,12 @@ pub async fn run_task_extraction_batch(
         })
         .collect();
 
-    let batch_result = mistral_batch::run_batch_job(http_client, requests, job_name).await?;
+    let batch_result =
+        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn).await?;
 
     Ok(TaskExtractionBatchResult {
         job_id: batch_result.job_id,
-        results: mistral_batch::parse_task_extraction_results(batch_result.results),
+        results: mistral::batch::parse_task_extraction_results(batch_result.results),
     })
 }
 

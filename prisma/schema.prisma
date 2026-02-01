@@ -129,21 +129,31 @@ model auto_cleanup_setting {
 }
 
 model user_email_rule {
-  id                 Int      @id @default(autoincrement())
-  user_id            Int
-  description        String
-  semantic_key       String
-  name               String   @db.VarChar
-  mail_label         String   @db.VarChar
-  extract_tasks      Boolean  @default(false)
-  priority           Int
-  is_user_customized Boolean  @default(false)
-  created_at         DateTime @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+  id              Int      @id @default(autoincrement())
+  user_id         Int
+  description     String
+  semantic_key    String
+  name            String   @db.VarChar
+  mail_label      String   @db.VarChar
+  extract_tasks   Boolean  @default(false)
+  priority        Int
+  matching_labels String[]
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
 
   user user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([user_id])
+}
+
+model system_email_rule {
+  id            Int     @id @default(autoincrement())
+  description   String
+  semantic_key  String
+  name          String  @db.VarChar
+  mail_label    String  @db.VarChar
+  extract_tasks Boolean @default(false)
+  priority      Int
 }
 
 model email_embedding {

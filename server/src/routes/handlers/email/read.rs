@@ -46,7 +46,7 @@ pub async fn get_messages_by_ids(
 
     let email_client = fetch_email_client(state, params.email).await?;
     let messages = email_client
-        .get_messages_by_ids(&message_ids, MessageFormat::Raw)
+        .get_messages_by_ids(&message_ids, MessageFormat::Raw, None)
         .await?;
 
     Ok(Json(messages))
@@ -66,7 +66,7 @@ pub async fn get_message_by_id(
     let user_email = &params.email;
     let email_client = fetch_email_client(state, user_email.clone()).await?;
     let messages = email_client
-        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw)
+        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw, None)
         .await?;
 
     let message = messages
@@ -106,7 +106,7 @@ pub async fn get_sanitized_message(
 ) -> AppJsonResult<SanitizedMessage> {
     let email_client = fetch_email_client(state, claims.email).await?;
     let messages = email_client
-        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw)
+        .get_messages_by_ids(&[id.as_str()], MessageFormat::Raw, None)
         .await?;
 
     let message = messages

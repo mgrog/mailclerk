@@ -14,7 +14,6 @@ pub struct CreateUserEmailRule {
     pub mail_label: String,
     pub extract_tasks: bool,
     pub priority: i32,
-    pub is_user_customized: bool,
 }
 
 pub struct UpdateUserEmailRule {
@@ -24,7 +23,6 @@ pub struct UpdateUserEmailRule {
     pub mail_label: Option<String>,
     pub extract_tasks: Option<bool>,
     pub priority: Option<i32>,
-    pub is_user_customized: Option<bool>,
 }
 
 impl UserEmailRuleCtrl {
@@ -98,7 +96,7 @@ impl UserEmailRuleCtrl {
                 updated_at: ActiveValue::Set(now),
                 extract_tasks: ActiveValue::Set(rule.extract_tasks),
                 priority: ActiveValue::Set(rule.priority),
-                is_user_customized: ActiveValue::Set(rule.is_user_customized),
+                matching_labels: ActiveValue::NotSet,
             })
             .collect();
 
@@ -150,9 +148,6 @@ impl UserEmailRuleCtrl {
         if let Some(priority) = update.priority {
             active_model.priority = ActiveValue::Set(priority);
         }
-        if let Some(is_user_customized) = update.is_user_customized {
-            active_model.is_user_customized = ActiveValue::Set(is_user_customized);
-        }
 
         let now = chrono::Utc::now().into();
         active_model.updated_at = ActiveValue::Set(now);
@@ -185,7 +180,6 @@ impl UserEmailRuleCtrl {
                 mail_label: c.mail_label.clone(),
                 extract_tasks: false,
                 priority: c.priority,
-                is_user_customized: false,
             })
             .collect();
 

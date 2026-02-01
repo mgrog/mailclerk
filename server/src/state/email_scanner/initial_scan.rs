@@ -11,7 +11,7 @@ use chrono::Duration;
 use crate::{
     email::{
         client::{EmailClient, MessageFormat, MessageListOptions},
-        rules::{EmailRule, UserEmailRules},
+        rules::SystemEmailRules,
         simplified_message::SimplifiedMessage,
     },
     model::user::{UserCtrl, UserWithAccountAccessAndUsage},
@@ -22,7 +22,10 @@ use crate::{
         batch_processor::{
             batch_insert_processed_emails, run_categorization_batch, run_task_extraction_batch,
         },
-        shared::{find_matching_rule, EmailScanData, ProcessedEmailData},
+        shared::{
+            find_matching_rule_system, CategorizationResult, CategorizationSource, EmailScanData,
+            ProcessedEmailData,
+        },
     },
     ServerState,
 };
@@ -65,14 +68,21 @@ pub async fn run_initial_scan_for_user(
             .await
             .context("Failed to create email client for initial scan")?;
 
-        // Load user's email rules
-        let user_email_rules = UserEmailRules::from_user(&conn, user_id)
+        // Load system rules (initial scan uses system rules only - users don't have custom rules yet)
+        let system_rules = SystemEmailRules::from_db(&conn)
             .await
-            .context("Failed to load user email rules")?;
+            .context("Failed to load system email rules")?;
 
         // Phase: Fetching emails from past N days
         scan_tracker.set_phase(user_id, ScanPhase::Fetching);
-        let emails = fetch_emails_for_scan(&email_client, lookback_days, max_emails).await?;
+        let emails = fetch_emails_for_scan(
+            &email_client,
+            lookback_days,
+            max_emails,
+            user_id,
+            &scan_tracker,
+        )
+        .await?;
 
         if emails.is_empty() {
             tracing::info!("No emails to process for user {}", user_email);
@@ -93,17 +103,27 @@ pub async fn run_initial_scan_for_user(
         // Update tracker with total email count (after pruning)
         scan_tracker.set_total_emails(user_id, emails.len());
 
-        // Phase 1: Batch categorization
+        // Build map of email_id -> email from (used for heuristics)
+        let email_from_map: HashMap<String, String> = emails
+            .iter()
+            .filter_map(|e| e.from.as_ref().map(|from| (e.id.clone(), from.clone())))
+            .collect();
+
+        // Phase 1: Batch categorization with system rules
         scan_tracker.set_phase(user_id, ScanPhase::Categorizing { job_id: None });
+        let track_fn = |completed: u64| {
+            scan_tracker.set_processed_emails(user_id, completed as usize);
+        };
         let cat_batch = run_categorization_batch(
             &http_client,
             &emails,
-            &user_email_rules,
+            &system_rules,
             &format!("initial_scan_cat_{}", user_id),
+            Some(&track_fn),
         )
         .await?;
 
-        // Update phase with job ID now that we have it
+        // Update phase with job ID
         if !cat_batch.job_id.is_empty() {
             scan_tracker.set_phase(
                 user_id,
@@ -120,26 +140,29 @@ pub async fn run_initial_scan_for_user(
             cat_batch.job_id
         );
 
-        // Build map of email_id -> email from
-        let email_from_map: HashMap<String, String> = emails
-            .iter()
-            .filter_map(|e| e.from.as_ref().map(|from| (e.id.clone(), from.clone())))
+        // Build categorization results map (with heuristics)
+        let categorization_map: HashMap<String, CategorizationResult> = cat_batch
+            .results
+            .into_iter()
+            .map(|r| {
+                let (email_rule, _) = find_matching_rule_system(
+                    r.general_category.as_deref(),
+                    &r.specific_category,
+                    r.confidence,
+                    &system_rules,
+                    email_from_map.get(&r.email_id),
+                );
+                let result = CategorizationResult {
+                    email_id: r.email_id.clone(),
+                    category: email_rule.prompt_content.clone(),
+                    confidence: r.confidence,
+                    label: email_rule.mail_label.clone(),
+                    email_rule,
+                    source: CategorizationSource::System,
+                };
+                (r.email_id, result)
+            })
             .collect();
-
-        // Build map of email_id -> (category, confidence, email_rule)
-        let mut categorization_map: HashMap<String, (String, f32, EmailRule)> = HashMap::new();
-        for result in cat_batch.results {
-            let (email_rule, _) = find_matching_rule(
-                &result.category,
-                result.confidence,
-                &user_email_rules,
-                email_from_map.get(&result.email_id),
-            );
-            categorization_map.insert(
-                result.email_id,
-                (result.category, result.confidence, email_rule),
-            );
-        }
 
         // Phase 2: Batch task extraction for emails that need it
         let emails_needing_tasks: Vec<&EmailScanData> = emails
@@ -147,7 +170,7 @@ pub async fn run_initial_scan_for_user(
             .filter(|e| {
                 categorization_map
                     .get(&e.id)
-                    .map(|(_, _, rule)| rule.extract_tasks)
+                    .map(|r| r.email_rule.extract_tasks)
                     .unwrap_or(false)
             })
             .collect();
@@ -162,6 +185,7 @@ pub async fn run_initial_scan_for_user(
                 &http_client,
                 &emails_needing_tasks,
                 &format!("initial_scan_task_{}", user_id),
+                None,
             )
             .await?;
 
@@ -187,18 +211,18 @@ pub async fn run_initial_scan_for_user(
             .collect();
 
         // Phase 3: Build processed email data
+        let mut categorization_map = categorization_map;
         let processed_emails: Vec<ProcessedEmailData> = emails
             .into_iter()
             .filter_map(|email| {
-                let (ai_answer, ai_confidence, rule) = categorization_map.remove(&email.id)?;
-                let category = rule.mail_label.clone();
+                let result = categorization_map.remove(&email.id)?;
                 let extracted_tasks = task_map.get(&email.id).cloned().unwrap_or_default();
 
                 Some(ProcessedEmailData {
                     email_data: email,
-                    category,
-                    ai_answer,
-                    ai_confidence,
+                    category: result.label,
+                    ai_answer: result.category,
+                    ai_confidence: result.confidence,
                     extracted_tasks,
                 })
             })
@@ -238,11 +262,12 @@ pub async fn run_initial_scan_for_user(
 fn estimate_email_tokens(email: &EmailScanData) -> usize {
     let user_content = categorization_user_prompt(
         email.subject.as_deref().unwrap_or(""),
+        email.from.as_deref().unwrap_or(""),
         email.body.as_deref().unwrap_or(""),
     );
 
     // Use the tokenizer to count tokens
-    tokenizer::token_count(&user_content).unwrap_or_else(|_| {
+    tokenizer::token_count(&user_content).unwrap_or({
         // Fallback: rough estimate of 1 token per 4 characters
         user_content.len() / 4
     })
@@ -321,12 +346,24 @@ async fn fetch_emails_for_scan(
     email_client: &EmailClient,
     lookback_days: i64,
     max_emails: usize,
+    user_id: i32,
+    scan_tracker: &ScanTracker,
 ) -> anyhow::Result<Vec<EmailScanData>> {
     let mut all_message_ids = Vec::new();
     let mut next_page_token = None;
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(120);
 
     // Fetch message IDs from past N days
     loop {
+        // Check for timeout
+        if start_time.elapsed() >= timeout {
+            tracing::warn!(
+                "Fetch timeout reached after 2 minutes, proceeding with {} emails",
+                all_message_ids.len()
+            );
+            break;
+        }
         let response = email_client
             .get_message_list(MessageListOptions {
                 page_token: next_page_token,
@@ -347,12 +384,17 @@ async fn fetch_emails_for_scan(
             }
         }
 
+        // Update scan tracker with current fetched count
+        scan_tracker.set_fetch_total(user_id, all_message_ids.len());
+        scan_tracker.set_total_emails(user_id, all_message_ids.len());
+
         if all_message_ids.len() >= max_emails {
             break;
         }
 
         next_page_token = response.next_page_token;
         if next_page_token.is_none() {
+            tracing::debug!("No next page token, ending fetch loop");
             break;
         }
     }
@@ -367,8 +409,11 @@ async fn fetch_emails_for_scan(
     }
 
     // Batch fetch message content
+    let track = |count: usize| {
+        scan_tracker.increment_fetched(user_id, count);
+    };
     let messages = email_client
-        .get_messages_by_ids(&all_message_ids, MessageFormat::Raw)
+        .get_messages_by_ids(&all_message_ids, MessageFormat::Raw, Some(&track))
         .await
         .context("Failed to batch fetch messages")?;
 
@@ -402,49 +447,66 @@ async fn fetch_emails_for_scan(
 #[cfg(test)]
 mod tests {
     use crate::{
-        email::rules::EmailRule,
-        model::labels::UtilityLabels,
-        state::email_scanner::shared::find_matching_rule,
+        email::rules::EmailRule, model::labels::UtilityLabels,
+        state::email_scanner::shared::find_matching_rule_system,
     };
 
     use super::*;
 
     #[test]
     fn test_find_matching_rule_high_confidence() {
-        let rules = UserEmailRules::new(vec![EmailRule {
+        let rules = SystemEmailRules::new(vec![EmailRule {
             prompt_content: "Newsletter".to_string(),
             mail_label: "newsletter".to_string(),
             extract_tasks: false,
             priority: 3,
         }]);
 
-        let (rule, _) = find_matching_rule("Newsletter", 0.95, &rules, Some("Someone"));
+        let (rule, _) = find_matching_rule_system(
+            Some("newsletter"),
+            "Newsletter",
+            0.95,
+            &rules,
+            Some("Someone"),
+        );
         assert_eq!(rule.mail_label, "newsletter");
     }
 
     #[test]
     fn test_find_matching_rule_low_confidence() {
-        let rules = UserEmailRules::new(vec![EmailRule {
+        let rules = SystemEmailRules::new(vec![EmailRule {
             prompt_content: "Newsletter".to_string(),
             mail_label: "newsletter".to_string(),
             extract_tasks: false,
             priority: 3,
         }]);
 
-        let (rule, _) = find_matching_rule("Newsletter", 0.3, &rules, Some("Someone"));
+        let (rule, _) = find_matching_rule_system(
+            Some("newsletter"),
+            "Newsletter",
+            0.3,
+            &rules,
+            Some("Someone"),
+        );
         assert_eq!(rule.mail_label, UtilityLabels::Uncategorized.as_str());
     }
 
     #[test]
     fn test_find_matching_rule_unknown_category() {
-        let rules = UserEmailRules::new(vec![EmailRule {
+        let rules = SystemEmailRules::new(vec![EmailRule {
             prompt_content: "Newsletter".to_string(),
             mail_label: "newsletter".to_string(),
             extract_tasks: false,
             priority: 3,
         }]);
 
-        let (rule, _) = find_matching_rule("SomethingElse", 0.95, &rules, Some("Someone"));
+        let (rule, _) = find_matching_rule_system(
+            Some("Something"),
+            "SomethingElse",
+            0.95,
+            &rules,
+            Some("Someone"),
+        );
         assert_eq!(rule.mail_label, UtilityLabels::Uncategorized.as_str());
     }
 }

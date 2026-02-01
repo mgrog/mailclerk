@@ -33,6 +33,101 @@ use crate::{
 
 use super::simplified_message::SimplifiedMessage;
 
+/// Gmail API error response structure
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GmailApiError {
+    pub error: GmailApiErrorDetail,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GmailApiErrorDetail {
+    pub code: u16,
+    pub message: String,
+    #[serde(default)]
+    pub errors: Vec<GmailApiErrorItem>,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GmailApiErrorItem {
+    pub message: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Result of a batch message fetch - either a successful message or an error
+#[derive(Debug)]
+pub enum BatchMessageResult {
+    Success(Message),
+    Error {
+        message_id: String,
+        error: GmailApiError,
+    },
+}
+
+#[derive(Default)]
+/// Filter and paging options for message list
+pub struct MessageListOptions {
+    /// Default is any non-mailclerk label
+    pub label_filter: Option<String>,
+    /// Messages more recent than this duration will be returned
+    pub more_recent_than: Option<chrono::Duration>,
+    pub older_than: Option<chrono::Duration>,
+    pub categories: Option<Vec<String>>,
+    pub page_token: Option<String>,
+    pub max_results: Option<u32>,
+}
+
+#[derive(Default)]
+/// Filter and paging options for thread list
+pub struct ThreadListOptions {
+    /// Gmail search query (e.g., "is:unread", "from:example@gmail.com")
+    pub query: Option<String>,
+    /// Only return threads with labels that match all of the specified label IDs
+    pub label_ids: Option<Vec<String>>,
+    /// Page token for pagination
+    pub page_token: Option<String>,
+    /// Maximum number of threads to return (default: 100)
+    pub max_results: Option<u32>,
+}
+
+/// Format parameter for Gmail API message requests
+#[derive(Debug, Clone, Copy, Default)]
+pub enum MessageFormat {
+    /// Returns the full email message data with body content parsed
+    Full,
+    /// Returns only email message IDs and labels
+    Minimal,
+    /// Returns email metadata (headers) without body
+    Metadata,
+    /// Returns the full email message in RFC 2822 format as a base64url encoded string
+    #[default]
+    Raw,
+}
+
+impl MessageFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MessageFormat::Full => "full",
+            MessageFormat::Minimal => "minimal",
+            MessageFormat::Metadata => "metadata",
+            MessageFormat::Raw => "raw",
+        }
+    }
+}
+
+enum EmailClientError {
+    RateLimitExceeded,
+    Unauthorized,
+    BadRequest,
+    Unknown,
+}
+
+type EmailClientResult<T> = Result<T, EmailClientError>;
+
 macro_rules! gmail_url {
     ($($params:expr),*) => {
         {
@@ -44,7 +139,7 @@ macro_rules! gmail_url {
     };
 }
 
-const MAX_RESULTS_DEFAULT: u32 = 500;
+pub const MAX_MESSAGES_PER_PAGE_DEFAULT: u32 = 500;
 
 lazy_static! {
     static ref COLOR_MAP: Lazy<GmailLabelColorMap> = Lazy::new(GmailLabelColorMap::new);
@@ -184,7 +279,7 @@ impl EmailClient {
         if let Some(time_filter) = time_filter {
             filters.push(time_filter);
         }
-        let max_results = options.max_results.unwrap_or(MAX_RESULTS_DEFAULT);
+        let max_results = options.max_results.unwrap_or(MAX_MESSAGES_PER_PAGE_DEFAULT);
 
         let mut query = vec![
             ("q".to_string(), filters.join(" ")),
@@ -229,13 +324,19 @@ impl EmailClient {
         &self,
         message_ids: &[impl AsRef<str>],
         format: MessageFormat,
+        track: Option<&(dyn Fn(usize) + Send + Sync)>,
     ) -> anyhow::Result<Vec<Message>> {
         if message_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         // Gmail batch API limit is 100 requests per batch
-        const BATCH_SIZE: usize = 100;
+        // API quota is 250 units per sec
+        // messages.get costs 5 units each
+        // Limit is ~50 messages/second max per user
+        // We go less than this for margin
+        const BATCH_SIZE: usize = 15;
+        const MAX_RETRIES: u32 = 3;
         let mut all_messages = Vec::with_capacity(message_ids.len());
 
         for chunk in message_ids.chunks(BATCH_SIZE) {
@@ -246,8 +347,67 @@ impl EmailClient {
                     .await;
             }
 
-            let messages = self.batch_get_messages(chunk, format).await?;
-            all_messages.extend(messages);
+            let mut pending_ids: Vec<String> =
+                chunk.iter().map(|id| id.as_ref().to_string()).collect();
+            let mut retry_count = 0;
+
+            while !pending_ids.is_empty() && retry_count <= MAX_RETRIES {
+                if retry_count > 0 {
+                    // Exponential backoff: 1s, 2s, 4s
+                    let delay = Duration::from_secs(1 << (retry_count - 1));
+                    tracing::info!(
+                        "Retrying {} messages after {:?} (attempt {}/{})",
+                        pending_ids.len(),
+                        delay,
+                        retry_count,
+                        MAX_RETRIES
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+
+                let results = self.batch_get_messages(&pending_ids, format).await?;
+                let mut successes = 0;
+                let mut failed_ids = Vec::new();
+
+                for result in results {
+                    match result {
+                        BatchMessageResult::Success(message) => {
+                            successes += 1;
+                            all_messages.push(message)
+                        }
+
+                        BatchMessageResult::Error { message_id, error } => {
+                            // Retry on rate limit errors (429)
+                            if error.error.code == 429 {
+                                failed_ids.push(message_id);
+                            } else {
+                                tracing::warn!(
+                                    "Skipping message {} due to non-retryable error: {} (code: {})",
+                                    message_id,
+                                    error.error.message,
+                                    error.error.code
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if let Some(track) = track {
+                    track(successes);
+                }
+
+                pending_ids = failed_ids;
+                retry_count += 1;
+            }
+
+            if !pending_ids.is_empty() {
+                tracing::error!(
+                    "Failed to fetch {} messages after {} retries: {:?}",
+                    pending_ids.len(),
+                    MAX_RETRIES,
+                    pending_ids
+                );
+            }
         }
 
         Ok(all_messages)
@@ -257,7 +417,7 @@ impl EmailClient {
         &self,
         message_ids: &[impl AsRef<str>],
         format: MessageFormat,
-    ) -> anyhow::Result<Vec<Message>> {
+    ) -> anyhow::Result<Vec<BatchMessageResult>> {
         let boundary = format!("batch_{}", Uuid::new_v4());
 
         // Build multipart body
@@ -295,6 +455,9 @@ impl EmailClient {
 
         let response_body = resp.text().await?;
 
+        #[cfg(test)]
+        crate::testing::common::dump_to_file("batch_response", &response_body);
+
         // Parse response boundary from content-type
         let response_boundary = content_type
             .split("boundary=")
@@ -302,13 +465,28 @@ impl EmailClient {
             .context("Missing boundary in response")?;
 
         // Parse multipart response
-        let mut messages = Vec::new();
+        let mut results = Vec::new();
         let parts: Vec<&str> = response_body
             .split(&format!("--{}", response_boundary))
             .filter(|p| !p.trim().is_empty() && !p.trim().starts_with("--"))
             .collect();
 
         for part in parts {
+            // Extract Content-ID to map back to message_id
+            // Format: Content-ID: <response-item{i}>
+            let message_id = part
+                .lines()
+                .find(|line| line.to_lowercase().starts_with("content-id:"))
+                .and_then(|line| {
+                    // Extract index from <response-item{i}> or <item{i}>
+                    line.split("item")
+                        .nth(1)
+                        .and_then(|s| s.trim_end_matches('>').parse::<usize>().ok())
+                })
+                .and_then(|idx| message_ids.get(idx))
+                .map(|id| id.as_ref().to_string())
+                .unwrap_or_default();
+
             // Each part has HTTP headers, then a blank line, then the JSON body
             // Find the JSON body (after the HTTP response line and headers)
             if let Some(json_start) = part.find("\r\n\r\n") {
@@ -317,13 +495,26 @@ impl EmailClient {
                 if let Some(json_start2) = after_http_headers.find("\r\n\r\n") {
                     let json_body = after_http_headers[json_start2 + 4..].trim();
                     if !json_body.is_empty() && json_body.starts_with('{') {
-                        match serde_json::from_str::<Message>(json_body) {
-                            Ok(message) => messages.push(message),
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to parse message from batch response: {}",
-                                    e
-                                );
+                        // Try parsing as error first
+                        if let Ok(error) = serde_json::from_str::<GmailApiError>(json_body) {
+                            tracing::warn!(
+                                "Batch request error for message {}: {} (code: {})",
+                                message_id,
+                                error.error.message,
+                                error.error.code
+                            );
+                            results.push(BatchMessageResult::Error { message_id, error });
+                        } else {
+                            // Try parsing as message
+                            match serde_json::from_str::<Message>(json_body) {
+                                Ok(message) => results.push(BatchMessageResult::Success(message)),
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to parse message {} from batch response: {}",
+                                        message_id,
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
@@ -331,7 +522,7 @@ impl EmailClient {
             }
         }
 
-        Ok(messages)
+        Ok(results)
     }
 
     pub async fn get_simplified_message(
@@ -964,66 +1155,6 @@ fn default_mailclerk_label_filter() -> String {
     labels.join(" AND NOT ")
 }
 
-#[derive(Default)]
-/// Filter and paging options for message list
-pub struct MessageListOptions {
-    /// Default is any non-mailclerk label
-    pub label_filter: Option<String>,
-    /// Messages more recent than this duration will be returned
-    pub more_recent_than: Option<chrono::Duration>,
-    pub older_than: Option<chrono::Duration>,
-    pub categories: Option<Vec<String>>,
-    pub page_token: Option<String>,
-    pub max_results: Option<u32>,
-}
-
-#[derive(Default)]
-/// Filter and paging options for thread list
-pub struct ThreadListOptions {
-    /// Gmail search query (e.g., "is:unread", "from:example@gmail.com")
-    pub query: Option<String>,
-    /// Only return threads with labels that match all of the specified label IDs
-    pub label_ids: Option<Vec<String>>,
-    /// Page token for pagination
-    pub page_token: Option<String>,
-    /// Maximum number of threads to return (default: 100)
-    pub max_results: Option<u32>,
-}
-
-/// Format parameter for Gmail API message requests
-#[derive(Debug, Clone, Copy, Default)]
-pub enum MessageFormat {
-    /// Returns the full email message data with body content parsed
-    Full,
-    /// Returns only email message IDs and labels
-    Minimal,
-    /// Returns email metadata (headers) without body
-    Metadata,
-    /// Returns the full email message in RFC 2822 format as a base64url encoded string
-    #[default]
-    Raw,
-}
-
-impl MessageFormat {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            MessageFormat::Full => "full",
-            MessageFormat::Minimal => "minimal",
-            MessageFormat::Metadata => "metadata",
-            MessageFormat::Raw => "raw",
-        }
-    }
-}
-
-enum EmailClientError {
-    RateLimitExceeded,
-    Unauthorized,
-    BadRequest,
-    Unknown,
-}
-
-type EmailClientResult<T> = Result<T, EmailClientError>;
-
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "integration")]
@@ -1121,5 +1252,70 @@ mod tests {
     async fn test_archive_email() {
         let client = setup_email_client("mpgrospamacc@gmail.com").await;
         client.archive_email("193936af5309bb57").await.unwrap();
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test]
+    async fn test_batch_get_messages_raw_format() {
+        let client = setup_email_client("mpgrospamacc@gmail.com").await;
+
+        // First get a list of messages to have valid IDs
+        let list_response = client
+            .get_message_list(super::MessageListOptions {
+                max_results: Some(200),
+                ..Default::default()
+            })
+            .await
+            .expect("Failed to get message list");
+
+        let message_ids: Vec<String> = list_response
+            .messages
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|m| m.id)
+            .collect();
+
+        assert!(
+            message_ids.len() >= 2,
+            "Need at least 2 messages to test batch fetch"
+        );
+
+        let messages = client
+            .get_messages_by_ids(&message_ids, super::MessageFormat::Raw, None)
+            .await
+            .expect("Failed to batch get messages");
+
+        assert_eq!(
+            messages.len(),
+            message_ids.len(),
+            "Should return same number of messages as requested"
+        );
+
+        for (i, msg) in messages.iter().enumerate() {
+            assert!(msg.id.is_some(), "Message {} should have an id", i);
+            assert!(
+                msg.raw.is_some(),
+                "Message {} should have raw content with RAW format",
+                i
+            );
+            println!("ID: <{}>", msg.id.as_ref().unwrap());
+
+            // Test that each message can be converted to a SimplifiedMessage
+            let simplified = super::SimplifiedMessage::from_gmail_message(msg).expect(&format!(
+                "Message {} should convert to SimplifiedMessage",
+                i
+            ));
+            println!(
+                "ID: <{}> Subject: <{}>",
+                simplified.id,
+                simplified.subject.unwrap()
+            );
+
+            assert!(
+                !simplified.id.is_empty(),
+                "SimplifiedMessage {} should have an id",
+                i
+            );
+        }
     }
 }

@@ -316,37 +316,29 @@ impl fmt::Display for ScanPhase {
     }
 }
 
-/// Progress information for a scan
-#[derive(Debug, Clone)]
-pub struct ScanProgress {
-    pub total_emails: usize,
-    pub processed_emails: usize,
+/// Progress tracking with current and total counts
+#[derive(Debug, Clone, Default)]
+pub struct Progress {
+    pub current: usize,
+    pub total: usize,
 }
 
-impl ScanProgress {
+impl Progress {
     pub fn new(total: usize) -> Self {
-        Self {
-            total_emails: total,
-            processed_emails: 0,
-        }
+        Self { current: 0, total }
     }
 
     pub fn percentage(&self) -> f32 {
-        if self.total_emails == 0 {
+        if self.total == 0 {
             0.0
         } else {
-            (self.processed_emails as f32 / self.total_emails as f32) * 100.0
+            (self.current as f32 / self.total as f32) * 100.0
         }
     }
 
-    /// Format as "processed/total (pct%)"
+    /// Format as "current / total"
     fn format_progress(&self) -> String {
-        format!(
-            "{}/{} ({:.0}%)",
-            self.processed_emails,
-            self.total_emails,
-            self.percentage()
-        )
+        format!("{} / {}", self.current, self.total)
     }
 }
 
@@ -357,7 +349,8 @@ pub struct ScanEntry {
     pub user_email: String,
     pub user_id: i32,
     pub phase: ScanPhase,
-    pub progress: ScanProgress,
+    pub fetch_progress: Progress,
+    pub scan_progress: Progress,
     pub started_at: Instant,
 }
 
@@ -368,7 +361,8 @@ impl ScanEntry {
             user_email,
             user_id,
             phase: ScanPhase::Fetching,
-            progress: ScanProgress::new(0),
+            fetch_progress: Progress::new(0),
+            scan_progress: Progress::new(0),
             started_at: Instant::now(),
         }
     }
@@ -433,24 +427,45 @@ impl ScanTracker {
         }
     }
 
+    /// Set the total number of emails to fetch by ID
+    pub fn set_fetch_total(&self, user_id: i32, total: usize) {
+        if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
+            entry.fetch_progress.total = total;
+        }
+    }
+
+    /// Set the number of emails fetched by ID
+    pub fn set_fetched_count(&self, user_id: i32, fetched: usize) {
+        if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
+            entry.fetch_progress.current = fetched;
+        }
+    }
+
+    /// Increment the fetched email count
+    pub fn increment_fetched(&self, user_id: i32, count: usize) {
+        if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
+            entry.fetch_progress.current += count;
+        }
+    }
+
     /// Update the total email count for a scan
     pub fn set_total_emails(&self, user_id: i32, total: usize) {
         if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
-            entry.progress.total_emails = total;
+            entry.scan_progress.total = total;
         }
     }
 
     /// Update the processed email count for a scan
     pub fn set_processed_emails(&self, user_id: i32, processed: usize) {
         if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
-            entry.progress.processed_emails = processed;
+            entry.scan_progress.current = processed;
         }
     }
 
     /// Increment the processed email count
     pub fn increment_processed(&self, user_id: i32, count: usize) {
         if let Some(entry) = self.active_scans.write().unwrap().get_mut(&user_id) {
-            entry.progress.processed_emails += count;
+            entry.scan_progress.current += count;
         }
     }
 
@@ -538,7 +553,7 @@ impl ScanTracker {
             return None;
         }
 
-        let headers = ["User", "Type", "Phase", "Job ID", "Progress", "Elapsed"];
+        let headers = ["User", "Type", "Phase", "Job ID", "Emails Fetched", "Emails Scanned", "Elapsed"];
         let mut rows: Vec<Vec<String>> = scans
             .values()
             .map(|s| {
@@ -547,7 +562,8 @@ impl ScanTracker {
                     s.scan_type.to_string(),
                     s.phase.short_name().to_string(),
                     s.phase.job_id().unwrap_or("-").to_string(),
-                    s.progress.format_progress(),
+                    s.fetch_progress.format_progress(),
+                    s.scan_progress.format_progress(),
                     s.format_elapsed(),
                 ]
             })

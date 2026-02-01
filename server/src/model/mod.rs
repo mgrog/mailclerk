@@ -4,6 +4,7 @@ pub mod email_embedding;
 pub mod labels;
 pub mod processed_email;
 pub mod response;
+pub mod system_email_rule;
 pub mod user;
 pub mod user_email_rule;
 pub mod user_token_usage;

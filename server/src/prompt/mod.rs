@@ -1,7 +1,6 @@
 pub(crate) mod converse;
 pub(crate) mod groq;
-pub(crate) mod mistral;
-pub mod mistral_batch;
+pub mod mistral;
 pub mod priority_queue;
 pub(crate) mod task_extraction;
 

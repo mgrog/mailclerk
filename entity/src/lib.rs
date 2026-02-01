@@ -9,6 +9,7 @@ pub mod inbox_settings;
 pub mod processed_daily_summary;
 pub mod processed_email;
 pub mod sea_orm_active_enums;
+pub mod system_email_rule;
 pub mod user;
 pub mod user_account_access;
 pub mod user_email_rule;

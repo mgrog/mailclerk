@@ -226,6 +226,7 @@ impl UserCtrl {
                 u.subscription_status = (CAST('ACTIVE' AS subscription_status))
                 AND (COALESCE("user_token_usage_stat".tokens_consumed, 0) < u.daily_token_limit)
                 AND uaa.needs_reauthentication = FALSE
+                AND u.is_initial_scan_complete = TRUE
         "#;
 
         let users =
@@ -624,7 +625,7 @@ mod tests {
 
         assert_eq!(user.email, test_email);
         assert_eq!(user.subscription_status, SubscriptionStatus::Unpaid);
-        assert!(!user.setup_completed);
+        assert!(!user.is_setup_complete);
 
         // Verify default rules were created
         let rules = UserEmailRuleCtrl::get_by_user_id(&conn, user.id)
@@ -650,7 +651,7 @@ mod tests {
     #[tokio::test]
     async fn test_query_statement() {
         dotenvy::from_filename(".env.integration").unwrap();
-        let daily_quota = cfg.api.token_limits.daily_user_quota;
+        let daily_quota = cfg.api.token_limits.default_daily_user_limit;
 
         let query = User::find()
             .filter(user::Column::SubscriptionStatus.eq(SubscriptionStatus::Active))
@@ -691,6 +692,6 @@ mod tests {
 
         assert!(users
             .iter()
-            .all(|u| u.tokens_consumed < cfg.api.token_limits.daily_user_quota as i64));
+            .all(|u| u.tokens_consumed < cfg.api.token_limits.default_daily_user_limit as i64));
     }
 }

@@ -24,6 +24,7 @@ use std::{
     env,
     future::Future,
     net::SocketAddr,
+    num::NonZeroU16,
     pin::Pin,
     sync::{atomic::AtomicU64, Arc},
     time::Duration,
@@ -230,15 +231,20 @@ async fn main() -> anyhow::Result<()> {
         })
     }));
 
-    let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "server".to_string());
+    let run_mode = env::var("RUN_MODE").expect("RUN_MODE must be defined!");
     println!("RUN_MODE={}", run_mode);
 
     match run_mode.as_str() {
         "server" => {
             use routes::ServerRouter;
             println!("-------- RUNNING SERVER MODE --------");
+            let port: NonZeroU16 = env::var("PORT")
+                .unwrap_or_else(|_| "5006".to_string())
+                .parse()
+                .expect("PORT must be a valid non-zero port number");
+
             let router = ServerRouter::create(state.clone());
-            run_server(router, scheduler).await.unwrap();
+            run_server(router, scheduler, port).await.unwrap();
         }
         "scanner" => {
             use routes::ScannerRouter;
@@ -262,8 +268,13 @@ async fn main() -> anyhow::Result<()> {
                 state.scan_tracker.clone(),
             );
 
+            let port: NonZeroU16 = env::var("PORT")
+                .unwrap_or_else(|_| "5007".to_string())
+                .parse()
+                .expect("PORT must be a valid non-zero port number");
+
             let router = ScannerRouter::create(state.clone());
-            let server_handle = run_server(router, scheduler);
+            let server_handle = run_server(router, scheduler, port);
 
             tokio::select! {
                 _ = server_handle => {
@@ -275,7 +286,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         _ => {
-            panic!("Invalid RUN_MODE: {}. Must be 'server' or 'scanner'", run_mode);
+            panic!(
+                "Invalid RUN_MODE: {}. Must be 'server' or 'scanner'",
+                run_mode
+            );
         }
     }
 
@@ -319,16 +333,16 @@ async fn shutdown_signal(mut scheduler: JobScheduler) {
     }
 }
 
-fn run_server(router: Router, scheduler: JobScheduler) -> JoinHandle<()> {
-    tokio::spawn(async {
-        // Start the server
-        let port = env::var("PORT").unwrap_or("5006".to_string());
-        tracing::info!("Mailclerk server running on http://0.0.0.0:{}", port);
-        // check config
+fn run_server(router: Router, scheduler: JobScheduler, port: NonZeroU16) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        println!(
+            "-------- MAILCLERK {} RUNNING ON http://0.0.0.0:{} --------",
+            env::var("RUN_MODE").unwrap().to_uppercase(),
+            port
+        );
         println!("{}", *server_config::cfg);
 
-        // run it with hyper
-        let addr = SocketAddr::from(([0, 0, 0, 0], port.parse::<u16>().unwrap()));
+        let addr = SocketAddr::from(([0, 0, 0, 0], port.get()));
         tracing::debug!("listening on {addr}");
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         axum::serve(
@@ -428,6 +442,7 @@ mod tests {
             session_store,
             task_queue: TaskQueue::new(),
             email_client_cache,
+            scan_tracker: ScanTracker::new(),
         };
 
         let router = routes::ServerRouter::create(state.clone());
