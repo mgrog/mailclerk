@@ -3,7 +3,6 @@ use sea_orm::DatabaseConnection;
 
 use crate::db_core::prelude::*;
 use crate::error::AppResult;
-use crate::server_config::cfg;
 
 pub struct UserEmailRuleCtrl;
 
@@ -167,22 +166,5 @@ impl UserEmailRuleCtrl {
         txn.commit().await?;
 
         Ok(updated_rule)
-    }
-
-    pub async fn create_default_rules(conn: &DatabaseConnection, user_id: i32) -> AppResult<()> {
-        let default_rules: Vec<CreateUserEmailRule> = cfg
-            .categories
-            .iter()
-            .map(|c| CreateUserEmailRule {
-                description: c.content.clone(),
-                semantic_key: c.content.clone(),
-                name: c.mail_label.clone(),
-                mail_label: c.mail_label.clone(),
-                extract_tasks: false,
-                priority: c.priority,
-            })
-            .collect();
-
-        Self::create_many(conn, user_id, default_rules).await
     }
 }

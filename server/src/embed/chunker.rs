@@ -1,14 +1,13 @@
 //! Sentence chunking for email embedding
 
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
+
 use regex::Regex;
 
 use crate::email::simplified_message::SimplifiedMessage;
 
-lazy_static! {
-    // Match sentence-ending punctuation followed by whitespace, or [LINK] placeholder
-    static ref CHUNK_BOUNDARY: Regex = Regex::new(r"[.!?]\s+|\[LINK\]").unwrap();
-}
+// Match sentence-ending punctuation followed by whitespace, or [LINK] placeholder
+static CHUNK_BOUNDARY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?]\s+|\[LINK\]").unwrap());
 
 /// Check if text has meaningful content (at least two consecutive letters)
 fn has_content(text: &str) -> bool {

@@ -9,7 +9,7 @@ use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait};
 
 use crate::{
     db_core::prelude::*,
-    email::rules::{EmailRules, UserEmailRules, UNKNOWN_RULE},
+    email::rules::{EmailRules, UserEmailRules},
     model::labels::UtilityLabels,
     prompt::{mistral, task_extraction},
     state::email_scanner::shared::{

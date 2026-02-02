@@ -1,6 +1,7 @@
 use config::{Config, ConfigError};
-use lazy_static::lazy_static;
+use itertools::Itertools;
 use serde::Deserialize;
+use std::sync::LazyLock;
 use std::{env, fs::File, io::Read, path::Path, result::Result};
 use url::Url;
 
@@ -24,13 +25,6 @@ impl GmailConfig {
 
         builder.try_deserialize()
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct Category {
-    pub content: String,
-    pub mail_label: String,
-    pub priority: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -98,7 +92,6 @@ struct FEConfig {
 struct ConfigFile {
     settings: Settings,
     api: ApiConfig,
-    categories: Vec<Category>,
     heuristics: Vec<Heuristic>,
     model: ModelConfig,
     frontend: FEConfig,
@@ -130,7 +123,6 @@ impl Frontend {
 pub struct ServerConfig {
     pub settings: Settings,
     pub api: ApiConfig,
-    pub categories: Vec<Category>,
     pub heuristics: Vec<Heuristic>,
     pub gmail_config: GmailConfig,
     pub model: ModelConfig,
@@ -143,14 +135,10 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Server Config:\n{:?}\n\nAPI: {:?}\n\nCategories:\n{}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}\n\nInitial Scan Config: {:?}",
+            "Server Config:\n{:?}\n\nAPI: {:?}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}\n\nInitial Scan Config: {:?}",
             self.settings,
             self.api,
-            self.categories
-                .iter()
-                .map(|c| format!("{} -> {}", c.content, c.mail_label))
-                .collect::<Vec<_>>().join("\n"),
-                self.heuristics
+            self.heuristics
                 .iter()
                 .map(|c| format!("{} -> {}", c.from, c.mail_label))
                 .collect::<Vec<_>>().join("\n"),
@@ -187,62 +175,144 @@ pub fn get_cert() -> Vec<u8> {
     cert_buf
 }
 
-lazy_static! {
-    pub static ref cfg: ServerConfig = {
+#[allow(non_upper_case_globals)]
+pub static cfg: LazyLock<ServerConfig> = LazyLock::new(|| {
+    let root = env::var("APP_DIR").unwrap_or_else(|_| {
+        let dir =
+            env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR or APP_DIR is required");
+        let dir = Path::new(&dir).parent().unwrap().display().to_string();
+        format!("{}/config", dir)
+    });
+    let path = format!("{root}/client_secret.toml");
+    let mut gmail_config = GmailConfig::from_file(&path).expect("client_secret.toml is required");
+    let redirect_uris = [
+        env::var("GMAIL_REDIRECT_URI_AUTH").unwrap_or(gmail_config.redirect_uris[0].clone()),
+        env::var("GMAIL_REDIRECT_URI_TOKEN").unwrap_or(gmail_config.redirect_uris[1].clone()),
+    ];
+    gmail_config.redirect_uris = redirect_uris.to_vec();
+    let path = format!("{root}/config.toml");
+    let cfg_file: ConfigFile = Config::builder()
+        .add_source(config::File::with_name(&path))
+        .build()
+        .expect("config.toml is required")
+        .try_deserialize()
+        .expect("config.toml is invalid");
+
+    let ConfigFile {
+        settings,
+        api,
+        model,
+        heuristics,
+        frontend,
+        embedding,
+        initial_scan,
+    } = cfg_file;
+
+    let frontend = Frontend {
+        base_url: Url::parse(&env::var("FRONTEND_URL").expect("FRONTEND_URL is required"))
+            .expect("FRONTEND_URL is invalid"),
+        config: frontend,
+    };
+
+    ServerConfig {
+        settings,
+        api,
+        heuristics,
+        gmail_config,
+        model,
+        frontend,
+        embedding,
+        initial_scan,
+    }
+});
+
+pub static UNKNOWN_CATEGORY: LazyLock<CategorizationRule> = LazyLock::new(|| CategorizationRule {
+    semantic_key: "Unknown".to_string(),
+    mail_label: "uncategorized".to_string(),
+    priority: 2,
+    extract_tasks: true,
+});
+
+pub static CATEGORIZATION_CONFIG: LazyLock<CategorizationConfig> = LazyLock::new(|| {
+    CategorizationConfig::load().expect("Failed to load categorization_config.toml")
+});
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CategorizationRuleEntry {
+    pub semantic_key: String,
+    pub priority: i32,
+    #[serde(default)]
+    pub extract_tasks: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CategorizationRule {
+    pub mail_label: String,
+    pub semantic_key: String,
+    pub priority: i32,
+    pub extract_tasks: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CategorizationConfig {
+    pub rules: Vec<CategorizationRule>,
+}
+
+impl CategorizationConfig {
+    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let root = env::var("APP_DIR").unwrap_or_else(|_| {
             let dir =
                 env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR or APP_DIR is required");
             let dir = Path::new(&dir).parent().unwrap().display().to_string();
             format!("{}/config", dir)
         });
-        let path = format!("{root}/client_secret.toml");
-        let mut gmail_config =
-            GmailConfig::from_file(&path).expect("client_secret.toml is required");
-        let redirect_uris = [
-            env::var("GMAIL_REDIRECT_URI_AUTH").unwrap_or(gmail_config.redirect_uris[0].clone()),
-            env::var("GMAIL_REDIRECT_URI_TOKEN").unwrap_or(gmail_config.redirect_uris[1].clone()),
-        ];
-        gmail_config.redirect_uris = redirect_uris.to_vec();
-        let path = format!("{root}/config.toml");
-        let cfg_file: ConfigFile = Config::builder()
-            .add_source(config::File::with_name(&path))
-            .build()
-            .expect("config.toml is required")
-            .try_deserialize()
-            .expect("config.toml is invalid");
+        let path = format!("{root}/categorization_config.toml");
 
-        let ConfigFile {
-            settings,
-            api,
-            categories,
-            model,
-            heuristics,
-            frontend,
-            embedding,
-            initial_scan,
-        } = cfg_file;
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {}", path, e))?;
 
-        let frontend = Frontend {
-            base_url: Url::parse(&env::var("FRONTEND_URL").expect("FRONTEND_URL is required"))
-                .expect("FRONTEND_URL is invalid"),
-            config: frontend,
-        };
+        let parsed: toml::Value =
+            toml::from_str(&contents).map_err(|e| format!("Failed to parse {}: {}", path, e))?;
 
-        ServerConfig {
-            settings,
-            api,
-            categories,
-            heuristics,
-            gmail_config,
-            model,
-            frontend,
-            embedding,
-            initial_scan,
+        let categories = parsed
+            .get("categories")
+            .and_then(|c| c.as_table())
+            .ok_or("Missing 'categories' table in categorization_config.toml")?;
+
+        let mut rules = Vec::new();
+
+        for (label_name, entries) in categories {
+            let entries_array = entries
+                .as_array()
+                .ok_or(format!("Expected array for categories.{}", label_name))?;
+
+            for entry in entries_array {
+                let entry: CategorizationRuleEntry = entry
+                    .clone()
+                    .try_into()
+                    .map_err(|e| format!("Invalid entry in categories.{}: {}", label_name, e))?;
+
+                rules.push(CategorizationRule {
+                    mail_label: label_name.clone(),
+                    semantic_key: entry.semantic_key,
+                    priority: entry.priority,
+                    extract_tasks: entry.extract_tasks,
+                });
+            }
         }
-    };
-    pub static ref UNKNOWN_CATEGORY: Category = Category {
-        content: "Unknown".to_string(),
-        mail_label: "uncategorized".to_string(),
-        priority: 2
-    };
+
+        Ok(Self { rules })
+    }
+}
+
+impl std::fmt::Display for CategorizationConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let table = self
+            .rules
+            .iter()
+            .map(|c| format!("{} -> {}", c.semantic_key, c.mail_label))
+            .join("\n");
+
+        write!(f, "{}", table)
+    }
 }

@@ -9,7 +9,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::server_config::cfg;
+use crate::server_config::CATEGORIZATION_CONFIG;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CategoryChatResponse {
@@ -125,11 +125,11 @@ pub static MAILCLERK_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(||
 
 static SYSTEM_TAXONOMY: LazyLock<String> = LazyLock::new(|| {
     let mut category_map: HashMap<String, Vec<String>> = HashMap::new();
-    for item in &cfg.categories {
+    for item in &CATEGORIZATION_CONFIG.rules {
         category_map
             .entry(item.mail_label.clone())
-            .and_modify(|bucket| bucket.push(item.content.clone()))
-            .or_insert(vec![item.content.clone()]);
+            .and_modify(|bucket| bucket.push(item.semantic_key.clone()))
+            .or_insert(vec![item.semantic_key.clone()]);
     }
 
     category_map
@@ -144,6 +144,11 @@ static SYSTEM_TAXONOMY: LazyLock<String> = LazyLock::new(|| {
         })
         .collect::<Vec<_>>()
         .join("\n")
+});
+
+pub static SYSTEM_PROMPT_TOKEN_ESTIMATE: LazyLock<i64> = LazyLock::new(|| {
+    let prompt_text = system_prompt(SystemPromptInput::SystemDefined);
+    tokenizer::token_count(&prompt_text).unwrap() as i64
 });
 
 pub enum SystemPromptInput {
@@ -204,4 +209,31 @@ pub fn categorization_user_prompt(subject: &str, sender: &str, body: &str) -> St
         sender,
         body
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_system_prompt_token_estimate() {
+        // Get the actual system prompt text
+        let prompt_text = system_prompt(SystemPromptInput::SystemDefined);
+
+        // Count the actual tokens in the prompt
+        let actual_tokens = tokenizer::token_count(&prompt_text)
+            .expect("Failed to count tokens in system prompt") as i64;
+
+        // Get the pre-calculated estimate
+        let estimated_tokens = *SYSTEM_PROMPT_TOKEN_ESTIMATE;
+        println!("System prompt token usage: {}", estimated_tokens);
+
+        // The estimate should match the actual count
+        // (they use the same tokenizer, so they should be identical)
+        assert_eq!(
+            actual_tokens, estimated_tokens,
+            "System prompt token estimate mismatch: estimated={}, actual={}",
+            estimated_tokens, actual_tokens
+        );
+    }
 }

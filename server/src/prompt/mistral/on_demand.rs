@@ -123,6 +123,8 @@ mod tests {
     #[cfg(feature = "integration")]
     #[tokio::test]
     async fn test_send_category_prompt_custom_rule() {
+        use entity::user_email_rule;
+
         let http_client = HttpClient::new();
         let rate_limiters =
             rate_limiters::RateLimiters::new(10_000, 1_000, 1, 1_000_000, 1_000, 10_000);
@@ -136,12 +138,27 @@ mod tests {
 
         let test_content = "Seat Geek Upcoming Events".to_string();
 
-        let email_rules = UserEmailRules::new_with_default_rules(vec![EmailRule {
-            prompt_content: test_content.clone(),
-            mail_label: "seatgeek".to_string(),
-            extract_tasks: false,
-            priority: 0,
-        }]);
+        let email_rules = UserEmailRules::new(
+            vec![EmailRule {
+                prompt_content: test_content.clone(),
+                mail_label: "seatgeek".to_string(),
+                extract_tasks: false,
+                priority: 0,
+            }],
+            vec![user_email_rule::Model {
+                id: 0,
+                user_id: 0,
+                description: "".to_string(),
+                semantic_key: "".to_string(),
+                name: "".to_string(),
+                priority: 0,
+                created_at: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap(),
+                mail_label: "seatgeek".to_string(),
+                updated_at: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap(),
+                extract_tasks: false,
+                matching_labels: None,
+            }],
+        );
 
         let resp = send_category_prompt(&http_client, &rate_limiters, &msg, &email_rules)
             .await

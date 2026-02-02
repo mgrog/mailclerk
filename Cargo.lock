@@ -5565,7 +5565,6 @@ dependencies = [
  "indoc 2.0.5",
  "itertools 0.14.0",
  "jsonwebtoken",
- "lazy_static",
  "leaky-bucket",
  "lettre",
  "lib-email-clients",

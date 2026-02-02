@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use std::{borrow::Cow, fmt};
 
 use anyhow::Context;
@@ -22,20 +23,19 @@ const RE_LONG_TOKEN_STR: &str = r"\b[a-zA-Z0-9_-]{30,}\b";
 // Footer detection patterns (case-insensitive)
 const RE_FOOTER_STR: &str = r"(?i)(^|\s)(unsubscribe|opt[- ]?out|manage\s+(your\s+)?(email\s+)?preferences|email\s+preferences|update\s+(your\s+)?preferences|sent\s+from\s+(my\s+)?(iphone|ipad|android|samsung|galaxy|mobile|outlook)|get\s+outlook\s+for|this\s+(email|message)\s+(is\s+)?(was\s+)?sent\s+(to|from)|confidential(ity)?(\s+notice)?|this\s+(e-?mail|message)\s+(and\s+any\s+attachments\s+)?(is|are|may\s+be)\s+(intended|privileged|confidential)|if\s+you\s+(are\s+not|have\s+received)\s+(the\s+intended|this\s+(e-?mail|message)\s+in\s+error)|please\s+(delete|disregard|notify)|privacy\s+policy|terms\s+(of\s+service|and\s+conditions)|all\s+rights\s+reserved|©\s*\d{4}|\d{4}\s*©|view\s+(this\s+)?(email\s+)?in\s+(your\s+)?browser|trouble\s+viewing|add\s+us\s+to\s+your\s+address\s+book|you('re|\s+are)\s+(receiving|getting)\s+this\s+(email|message|because))";
 
-lazy_static::lazy_static!(
-    static ref RE_WHITESPACE: Regex = Regex::new(RE_WHITESPACE_STR).unwrap();
-    static ref RE_NEWLINE: Regex = Regex::new(RE_NEWLINE_STR).unwrap();
-    static ref RE_LONG_SPACE: Regex = Regex::new(RE_LONG_SPACE_STR).unwrap();
-    static ref RE_DIVIDERS: Regex = Regex::new(RE_DIVIDERS_STR).unwrap();
-    static ref RE_HTTP_LINK: Regex = Regex::new(RE_HTTP_LINK_STR).unwrap();
-    static ref RE_ORPHANED_PAREN_LINK: Regex = Regex::new(RE_ORPHANED_PAREN_LINK_STR).unwrap();
-    static ref RE_IMG_TAG: Regex = Regex::new(RE_IMG_TAG_STR).unwrap();
-    static ref RE_FOOTER: Regex = Regex::new(RE_FOOTER_STR).unwrap();
-    static ref RE_HEX_HASH: Regex = Regex::new(RE_HEX_HASH_STR).unwrap();
-    static ref RE_UUID: Regex = Regex::new(RE_UUID_STR).unwrap();
-    static ref RE_BASE64_LONG: Regex = Regex::new(RE_BASE64_LONG_STR).unwrap();
-    static ref RE_LONG_TOKEN: Regex = Regex::new(RE_LONG_TOKEN_STR).unwrap();
-);
+static RE_WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_WHITESPACE_STR).unwrap());
+static RE_NEWLINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_NEWLINE_STR).unwrap());
+static RE_LONG_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_LONG_SPACE_STR).unwrap());
+static RE_DIVIDERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_DIVIDERS_STR).unwrap());
+static RE_HTTP_LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_HTTP_LINK_STR).unwrap());
+static RE_ORPHANED_PAREN_LINK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(RE_ORPHANED_PAREN_LINK_STR).unwrap());
+static RE_IMG_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_IMG_TAG_STR).unwrap());
+static RE_FOOTER: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_FOOTER_STR).unwrap());
+static RE_HEX_HASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_HEX_HASH_STR).unwrap());
+static RE_UUID: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_UUID_STR).unwrap());
+static RE_BASE64_LONG: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_BASE64_LONG_STR).unwrap());
+static RE_LONG_TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(RE_LONG_TOKEN_STR).unwrap());
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SimplifiedMessage {

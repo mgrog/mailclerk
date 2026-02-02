@@ -250,6 +250,29 @@ async fn main() -> anyhow::Result<()> {
             use routes::ScannerRouter;
             println!("-------- RUNNING SCANNER MODE --------");
 
+            // Sync system email rules from categorization config
+            {
+                use crate::model::system_email_rule::SystemEmailRuleCtrl;
+                use crate::server_config::CATEGORIZATION_CONFIG;
+
+                match SystemEmailRuleCtrl::sync_from_config(
+                    &state.conn,
+                    &CATEGORIZATION_CONFIG.rules,
+                )
+                .await
+                {
+                    Ok(Some(count)) => {
+                        println!("Synced {} system email rules from config", count);
+                    }
+                    Ok(None) => {
+                        println!("System email rules already up to date");
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to sync system email rules: {:?}", e);
+                    }
+                }
+            }
+
             println!("Starting scheduler...");
             match scheduler.start().await {
                 Ok(_) => {
@@ -341,6 +364,7 @@ fn run_server(router: Router, scheduler: JobScheduler, port: NonZeroU16) -> Join
             port
         );
         println!("{}", *server_config::cfg);
+        println!("{}", *server_config::CATEGORIZATION_CONFIG);
 
         let addr = SocketAddr::from(([0, 0, 0, 0], port.get()));
         tracing::debug!("listening on {addr}");

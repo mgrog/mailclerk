@@ -13,7 +13,6 @@ use lib_utils::crypt;
 use sea_orm::DbBackend;
 
 use super::response::GmailApiTokenResponse;
-use super::user_email_rule::UserEmailRuleCtrl;
 
 trait UserAccountAccessCols {
     fn select_user_account_access_cols(self) -> Self;
@@ -71,7 +70,6 @@ impl UserCtrl {
         match insert_result {
             Ok(_) => {
                 let user = Self::get_by_email(conn, email).await?;
-                UserEmailRuleCtrl::create_default_rules(conn, user.id).await?;
                 Ok(user)
             }
             Err(DbErr::Query(RuntimeErr::SqlxError(sqlx::Error::Database(db_err))))
@@ -627,21 +625,9 @@ mod tests {
         assert_eq!(user.subscription_status, SubscriptionStatus::Unpaid);
         assert!(!user.is_setup_complete);
 
-        // Verify default rules were created
-        let rules = UserEmailRuleCtrl::get_by_user_id(&conn, user.id)
-            .await
-            .unwrap();
-        assert_eq!(rules.len(), cfg.categories.len());
-
         // Try to create the same user again (should return existing user)
         let existing_user = UserCtrl::create(&conn, &test_email).await.unwrap();
         assert_eq!(existing_user.id, user.id);
-
-        // Verify no duplicate rules were created
-        let rules_after = UserEmailRuleCtrl::get_by_user_id(&conn, user.id)
-            .await
-            .unwrap();
-        assert_eq!(rules_after.len(), cfg.categories.len());
 
         // Cleanup
         User::delete_by_id(user.id).exec(&conn).await.unwrap();

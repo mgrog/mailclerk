@@ -1,7 +1,6 @@
 pub mod chunker;
 pub mod service;
 
-pub use service::should_embed_email;
 
 use crate::server_config::cfg;
 use anyhow::Context;

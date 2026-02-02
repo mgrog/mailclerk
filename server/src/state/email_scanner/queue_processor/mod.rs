@@ -36,7 +36,7 @@ use crate::{
         user::UserWithAccountAccessAndUsage, user_token_usage::UserTokenUsageStatsCtrl,
     },
     prompt::{
-        mistral::{self, CategoryChatResponse},
+        mistral::{self},
         task_extraction, Priority, QueueEntry, TaskData, TaskQueue,
     },
     rate_limiters::RateLimiters,
@@ -560,7 +560,9 @@ impl EmailProcessor {
 
         // Estimate token usage and check against remaining quota (allow up to 1% over)
         let email_text = simplified.to_string();
-        let estimated_tokens = tokenizer::token_count(&email_text).unwrap_or(0) as i64;
+        let user_content_tokens = tokenizer::token_count(&email_text).unwrap_or(0) as i64;
+        let system_prompt_tokens = *mistral::SYSTEM_PROMPT_TOKEN_ESTIMATE;
+        let estimated_tokens = user_content_tokens + system_prompt_tokens;
         let quota_buffer = self.daily_token_limit / 100; // 1% buffer
         if estimated_tokens > self.quota_remaining().saturating_add(quota_buffer) {
             tracing::info!(

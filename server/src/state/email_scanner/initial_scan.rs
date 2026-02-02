@@ -260,17 +260,24 @@ pub async fn run_initial_scan_for_user(
 
 /// Estimate the token usage for a single email in the categorization batch.
 fn estimate_email_tokens(email: &EmailScanData) -> usize {
+    use crate::prompt::mistral::SYSTEM_PROMPT_TOKEN_ESTIMATE;
+
     let user_content = categorization_user_prompt(
         email.subject.as_deref().unwrap_or(""),
         email.from.as_deref().unwrap_or(""),
         email.body.as_deref().unwrap_or(""),
     );
 
-    // Use the tokenizer to count tokens
-    tokenizer::token_count(&user_content).unwrap_or({
+    // Use the tokenizer to count user content tokens
+    let user_tokens = tokenizer::token_count(&user_content).unwrap_or({
         // Fallback: rough estimate of 1 token per 4 characters
         user_content.len() / 4
-    })
+    });
+
+    // Add system prompt token estimate
+    let system_tokens = *SYSTEM_PROMPT_TOKEN_ESTIMATE as usize;
+
+    user_tokens + system_tokens
 }
 
 /// Estimate total token usage for all emails and prune if necessary.

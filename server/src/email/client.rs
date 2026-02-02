@@ -2,12 +2,10 @@ extern crate google_gmail1 as gmail1;
 
 use anyhow::{anyhow, Context};
 use chrono::{FixedOffset, Utc};
-use futures::future::join_all;
 use google_gmail1::api::{
     Label, ListLabelsResponse, ListMessagesResponse, ListThreadsResponse, Message, Profile, Thread,
     WatchResponse,
 };
-use lazy_static::lazy_static;
 use leaky_bucket::RateLimiter;
 use lib_email_clients::gmail::api_quota::{GMAIL_API_QUOTA, GMAIL_QUOTA_PER_SECOND};
 use lib_email_clients::gmail::label_colors::GmailLabelColorMap;
@@ -15,19 +13,13 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use std::{collections::HashSet, time::Duration};
-use strum::IntoEnumIterator;
+use std::time::Duration;
 use uuid::Uuid;
 
-use crate::model::labels::UtilityLabels;
 use crate::model::user::UserAccessCtrl;
 use crate::{
     db_core::prelude::*,
-    model::{
-        labels,
-        user::{AccountAccess, EmailAddress, Id},
-    },
-    server_config::cfg,
+    model::user::{AccountAccess, EmailAddress, Id},
     HttpClient,
 };
 
@@ -141,9 +133,7 @@ macro_rules! gmail_url {
 
 pub const MAX_MESSAGES_PER_PAGE_DEFAULT: u32 = 500;
 
-lazy_static! {
-    static ref COLOR_MAP: Lazy<GmailLabelColorMap> = Lazy::new(GmailLabelColorMap::new);
-}
+static COLOR_MAP: Lazy<GmailLabelColorMap> = Lazy::new(GmailLabelColorMap::new);
 
 #[derive(Debug, Clone)]
 pub struct EmailClient {
@@ -746,143 +736,143 @@ impl EmailClient {
         }
     }
 
-    pub async fn configure_labels_if_needed(
-        &self,
-        user_custom_labels: Vec<String>,
-    ) -> anyhow::Result<bool> {
-        let current_labels = self.get_labels().await?;
+    // pub async fn configure_labels_if_needed(
+    //     &self,
+    //     user_custom_labels: Vec<String>,
+    // ) -> anyhow::Result<bool> {
+    //     let current_labels = self.get_labels().await?;
 
-        let parent_label_exists = current_labels
-            .iter()
-            .any(|l| l.name.as_ref().is_some_and(|n| n == "Mailclerk"));
+    //     let parent_label_exists = current_labels
+    //         .iter()
+    //         .any(|l| l.name.as_ref().is_some_and(|n| n == "Mailclerk"));
 
-        let existing_labels = current_labels
-            .iter()
-            .filter(|l| l.name.as_ref().is_some_and(|n| n.contains("Mailclerk/")))
-            .cloned()
-            .collect::<Vec<_>>();
+    //     let existing_labels = current_labels
+    //         .iter()
+    //         .filter(|l| l.name.as_ref().is_some_and(|n| n.contains("Mailclerk/")))
+    //         .cloned()
+    //         .collect::<Vec<_>>();
 
-        // -- DEBUG
-        // println!("Existing labels: {:?}", existing_labels);
-        // -- DEBUG
+    //     // -- DEBUG
+    //     // println!("Existing labels: {:?}", existing_labels);
+    //     // -- DEBUG
 
-        // Configure labels if they need it
-        let required_labels = cfg
-            .categories
-            .iter()
-            .map(|c| c.mail_label.as_str())
-            .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
-            .chain(labels::UtilityLabels::iter().map(|c| c.as_str()))
-            .chain(user_custom_labels.iter().map(|s| s.as_str()))
-            .map(|mail_label| format!("Mailclerk/{}", mail_label))
-            .collect::<HashSet<_>>();
+    //     // Configure labels if they need it
+    //     let required_labels = cfg
+    //         .categories
+    //         .iter()
+    //         .map(|c| c.mail_label.as_str())
+    //         .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
+    //         .chain(labels::UtilityLabels::iter().map(|c| c.as_str()))
+    //         .chain(user_custom_labels.iter().map(|s| s.as_str()))
+    //         .map(|mail_label| format!("Mailclerk/{}", mail_label))
+    //         .collect::<HashSet<_>>();
 
-        let existing_label_names = existing_labels
-            .iter()
-            .map(|l| l.name.clone().unwrap_or_default())
-            .collect::<HashSet<_>>();
+    //     let existing_label_names = existing_labels
+    //         .iter()
+    //         .map(|l| l.name.clone().unwrap_or_default())
+    //         .collect::<HashSet<_>>();
 
-        let missing_labels = required_labels
-            .difference(&existing_label_names)
-            .cloned()
-            .collect::<Vec<_>>();
+    //     let missing_labels = required_labels
+    //         .difference(&existing_label_names)
+    //         .cloned()
+    //         .collect::<Vec<_>>();
 
-        // -- DEBUG
-        // println!("Missing labels: {:?}", existing_labels);
-        // -- DEBUG
+    //     // -- DEBUG
+    //     // println!("Missing labels: {:?}", existing_labels);
+    //     // -- DEBUG
 
-        let unneeded_labels = {
-            let unneeded = existing_label_names
-                .difference(&required_labels)
-                .cloned()
-                .collect::<HashSet<_>>();
+    //     let unneeded_labels = {
+    //         let unneeded = existing_label_names
+    //             .difference(&required_labels)
+    //             .cloned()
+    //             .collect::<HashSet<_>>();
 
-            existing_labels
-                .iter()
-                .filter(|l| l.name.as_ref().is_some_and(|n| unneeded.contains(n)))
-                .cloned()
-                .collect::<Vec<_>>()
-        };
+    //         existing_labels
+    //             .iter()
+    //             .filter(|l| l.name.as_ref().is_some_and(|n| unneeded.contains(n)))
+    //             .cloned()
+    //             .collect::<Vec<_>>()
+    //     };
 
-        if parent_label_exists && missing_labels.is_empty() && unneeded_labels.is_empty() {
-            // Labels are already configured
-            return Ok(false);
-        }
+    //     if parent_label_exists && missing_labels.is_empty() && unneeded_labels.is_empty() {
+    //         // Labels are already configured
+    //         return Ok(false);
+    //     }
 
-        if !parent_label_exists {
-            let label = Label {
-                id: None,
-                type_: Some("user".to_string()),
-                color: Some(COLOR_MAP.get("blue-600")),
-                name: Some("Mailclerk".to_string()),
-                messages_total: None,
-                messages_unread: None,
-                threads_total: None,
-                threads_unread: None,
-                message_list_visibility: Some("show".to_string()),
-                label_list_visibility: Some("labelShow".to_string()),
-            };
-            self.create_label(label)
-                .await
-                .context("Could not create parent label")?;
-        }
+    //     if !parent_label_exists {
+    //         let label = Label {
+    //             id: None,
+    //             type_: Some("user".to_string()),
+    //             color: Some(COLOR_MAP.get("blue-600")),
+    //             name: Some("Mailclerk".to_string()),
+    //             messages_total: None,
+    //             messages_unread: None,
+    //             threads_total: None,
+    //             threads_unread: None,
+    //             message_list_visibility: Some("show".to_string()),
+    //             label_list_visibility: Some("labelShow".to_string()),
+    //         };
+    //         self.create_label(label)
+    //             .await
+    //             .context("Could not create parent label")?;
+    //     }
 
-        let labels_to_add = missing_labels.into_iter().collect::<Vec<_>>();
+    //     let labels_to_add = missing_labels.into_iter().collect::<Vec<_>>();
 
-        // Add mailclerk labels
-        let add_label_tasks = labels_to_add.into_iter().map(|label| {
-            let (message_list_visibility, label_list_visibility) =
-                if label == UtilityLabels::Uncategorized.as_str() {
-                    (Some("hide".to_string()), Some("labelHide".to_string()))
-                } else {
-                    (
-                        Some("show".to_string()),
-                        Some("labelShowIfUnread".to_string()),
-                    )
-                };
-            let label_name = label.split("Mailclerk/").nth(1).unwrap_or("");
-            let color = COLOR_MAP.get(label_name);
-            let label = Label {
-                id: None,
-                type_: Some("user".to_string()),
-                color: Some(color),
-                name: Some(label.clone()),
-                messages_total: None,
-                messages_unread: None,
-                threads_total: None,
-                threads_unread: None,
-                message_list_visibility,
-                label_list_visibility,
-            };
-            async { self.create_label(label).await }
-        });
+    //     // Add mailclerk labels
+    //     let add_label_tasks = labels_to_add.into_iter().map(|label| {
+    //         let (message_list_visibility, label_list_visibility) =
+    //             if label == UtilityLabels::Uncategorized.as_str() {
+    //                 (Some("hide".to_string()), Some("labelHide".to_string()))
+    //             } else {
+    //                 (
+    //                     Some("show".to_string()),
+    //                     Some("labelShowIfUnread".to_string()),
+    //                 )
+    //             };
+    //         let label_name = label.split("Mailclerk/").nth(1).unwrap_or("");
+    //         let color = COLOR_MAP.get(label_name);
+    //         let label = Label {
+    //             id: None,
+    //             type_: Some("user".to_string()),
+    //             color: Some(color),
+    //             name: Some(label.clone()),
+    //             messages_total: None,
+    //             messages_unread: None,
+    //             threads_total: None,
+    //             threads_unread: None,
+    //             message_list_visibility,
+    //             label_list_visibility,
+    //         };
+    //         async { self.create_label(label).await }
+    //     });
 
-        // Reset mailclerk labels
-        //? Maybe remove this in the future?
-        //? Probably needs to migrate existing mails to new labels
-        // let remove_label_tasks = existing_labels.into_iter().map(|label| async {
-        //     let id = label.id.context("Label id not provided")?;
-        //     self.delete_label(id).await
-        // });
+    // Reset mailclerk labels
+    //? Maybe remove this in the future?
+    //? Probably needs to migrate existing mails to new labels
+    // let remove_label_tasks = existing_labels.into_iter().map(|label| async {
+    //     let id = label.id.context("Label id not provided")?;
+    //     self.delete_label(id).await
+    // });
 
-        // let results = join_all(remove_label_tasks).await;
-        // for result in results {
-        //     match result {
-        //         Ok(_) => {}
-        //         Err(e) => {
-        //             tracing::error!("{e}");
-        //             return Err(e);
-        //         }
-        //     }
-        // }
+    // let results = join_all(remove_label_tasks).await;
+    // for result in results {
+    //     match result {
+    //         Ok(_) => {}
+    //         Err(e) => {
+    //             tracing::error!("{e}");
+    //             return Err(e);
+    //         }
+    //     }
+    // }
 
-        let results = join_all(add_label_tasks).await;
-        for result in results {
-            result.context("Could not create label")?;
-        }
+    //     let results = join_all(add_label_tasks).await;
+    //     for result in results {
+    //         result.context("Could not create label")?;
+    //     }
 
-        Ok(true)
-    }
+    //     Ok(true)
+    // }
 
     // pub async fn label_email(
     //     &self,
@@ -1121,59 +1111,45 @@ impl EmailClient {
 //     ))
 // }
 
-fn get_required_labels() -> HashSet<String> {
-    cfg.categories
-        .iter()
-        .map(|c| c.mail_label.as_str())
-        .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
-        .chain(labels::UtilityLabels::iter().map(|c| c.as_str()))
-        .map(|mail_label| format!("Mailclerk/{}", mail_label))
-        .collect::<HashSet<_>>()
-}
+// fn get_required_labels() -> HashSet<String> {
+//     cfg.categories
+//         .iter()
+//         .map(|c| c.mail_label.as_str())
+//         .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
+//         .chain(labels::UtilityLabels::iter().map(|c| c.as_str()))
+//         .map(|mail_label| format!("Mailclerk/{}", mail_label))
+//         .collect::<HashSet<_>>()
+// }
 
 fn format_filter(label: &str) -> String {
     let label = label.replace(" ", "-");
     format!("label:Mailclerk/{}", label)
 }
 
-fn default_mailclerk_label_filter() -> String {
-    // Add mailclerk labels to filter
-    let label_set = cfg
-        .categories
-        .iter()
-        .map(|c| c.mail_label.as_str())
-        .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
-        .chain(labels::UtilityLabels::iter().map(|l| l.as_str()))
-        .map(format_filter)
-        .collect::<HashSet<String>>();
+// fn default_mailclerk_label_filter() -> String {
+//     // Add mailclerk labels to filter
+//     let label_set = cfg
+//         .categories
+//         .iter()
+//         .map(|c| c.mail_label.as_str())
+//         .chain(cfg.heuristics.iter().map(|c| c.mail_label.as_str()))
+//         .chain(labels::UtilityLabels::iter().map(|l| l.as_str()))
+//         .map(format_filter)
+//         .collect::<HashSet<String>>();
 
-    let labels = vec!["label:inbox".to_string()]
-        .into_iter()
-        .chain(label_set)
-        .collect::<Vec<_>>();
+//     let labels = vec!["label:inbox".to_string()]
+//         .into_iter()
+//         .chain(label_set)
+//         .collect::<Vec<_>>();
 
-    labels.join(" AND NOT ")
-}
+//     labels.join(" AND NOT ")
+// }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "integration")]
-    use std::collections::HashSet;
-    #[cfg(feature = "integration")]
-    use strum::IntoEnumIterator;
 
     #[cfg(feature = "integration")]
-    use google_gmail1::api::Label;
-
-    #[cfg(feature = "integration")]
-    use super::*;
-    #[cfg(feature = "integration")]
-    use crate::{
-        email::client::{format_filter, get_required_labels},
-        model::labels,
-        server_config::cfg,
-        testing::common::setup_email_client,
-    };
+    use crate::testing::common::setup_email_client;
 
     #[test]
     fn test_gmail_url() {
