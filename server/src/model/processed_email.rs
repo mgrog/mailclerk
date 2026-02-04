@@ -244,6 +244,26 @@ impl ProcessedEmailCtrl {
 
         Ok(())
     }
+
+    /// Get the set of email IDs that already exist in processed_emails for a user
+    pub async fn get_existing_ids(
+        conn: &DatabaseConnection,
+        user_id: i32,
+        email_ids: &[String],
+    ) -> AppResult<std::collections::HashSet<String>> {
+        use sea_orm::QuerySelect;
+
+        let existing: Vec<String> = ProcessedEmail::find()
+            .filter(processed_email::Column::UserId.eq(user_id))
+            .filter(processed_email::Column::Id.is_in(email_ids.to_vec()))
+            .select_only()
+            .column(processed_email::Column::Id)
+            .into_tuple()
+            .all(conn)
+            .await?;
+
+        Ok(existing.into_iter().collect())
+    }
 }
 
 #[derive(Debug, Clone, FromQueryResult)]

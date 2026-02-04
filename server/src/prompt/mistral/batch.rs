@@ -339,6 +339,7 @@ async fn upload_batch_file(
 pub async fn create_batch_job(
     http_client: &HttpClient,
     requests: Vec<BatchRequest>,
+    purpose: &str,
 ) -> Result<BatchJob, CreateBatchJobError> {
     // Create JSONL content in memory
     let jsonl_content = create_jsonl_content(&requests)?;
@@ -357,7 +358,7 @@ pub async fn create_batch_job(
             "model": &cfg.model.id,
             "endpoint": "/v1/chat/completions",
             "metadata": {
-                "purpose": "initial_scan"
+                "purpose": purpose
             }
         }))
         .send()
@@ -626,7 +627,7 @@ pub async fn run_batch_job(
     );
 
     // Create job with file upload
-    let job = create_batch_job(http_client, requests).await?;
+    let job = create_batch_job(http_client, requests, job_name).await?;
     let job_id = job.id.clone();
     let input_files = job.input_files.clone();
     tracing::info!("Created batch job: {} (status: {:?})", job.id, job.status);

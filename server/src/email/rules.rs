@@ -97,6 +97,7 @@ impl EmailRules for SystemEmailRules {
 }
 
 /// Wrapper for user-specific email rules (second pass categorization)
+#[derive(Clone)]
 pub struct UserEmailRules {
     data: Vec<EmailRule>,
     models: Vec<user_email_rule::Model>,

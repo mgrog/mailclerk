@@ -8,12 +8,12 @@ use std::{
 use anyhow::{anyhow, Context};
 use chrono::{NaiveDateTime, Utc};
 use derive_more::Display;
-use entity::{email_training, prelude::*, processed_email};
+use entity::processed_email;
 use indexmap::IndexSet;
 use num_traits::FromPrimitive;
 use sea_orm::{
-    entity::*, prelude::Decimal, sea_query::OnConflict, ActiveValue, DatabaseConnection,
-    EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
+    entity::*, prelude::Decimal, ActiveValue, DatabaseConnection, EntityTrait, FromQueryResult,
+    QueryFilter, QuerySelect,
 };
 use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::watch;
@@ -116,7 +116,7 @@ impl EmailProcessor {
         let conn = server_state.conn.clone();
         let http_client = server_state.http_client.clone();
         let rate_limiters = server_state.rate_limiters.clone();
-        let task_queue = server_state.task_queue.clone();
+        let task_queue = TaskQueue::new();
 
         let email_client = EmailClient::new(http_client.clone(), conn.clone(), user)
             .await
@@ -283,34 +283,6 @@ impl EmailProcessor {
         Ok(num_added)
     }
 
-    async fn queue_older_emails(&self) -> AppResult<i32> {
-        let new_email_ids = self.fetch_email_ids(None).await?;
-
-        if new_email_ids.is_empty() {
-            return Ok(0);
-        }
-
-        let mut num_added = 0;
-        for email_id in &new_email_ids {
-            let entry = QueueEntry {
-                user_email: self.email_address.clone(),
-                user_id: self.user_id,
-                email_id: email_id.clone(),
-                priority: Priority::Low,
-                task: TaskData::Categorization,
-            };
-            if self.task_queue.push(entry) {
-                num_added += 1;
-            }
-        }
-
-        Ok(num_added)
-    }
-
-    pub fn reset_quota(&self) {
-        self.token_count.store(0, Relaxed);
-    }
-
     async fn parse_and_prompt_email(
         &self,
         email_message: &SimplifiedMessage,
@@ -384,48 +356,6 @@ impl EmailProcessor {
             heuristics_used,
             token_usage: system_response.token_usage,
         })
-    }
-
-    // TODO: Remove this
-    async fn record_email_for_training(
-        &self,
-        email_message: &SimplifiedMessage,
-        parse_and_prompt_return: &PromptReturnData,
-    ) -> anyhow::Result<()> {
-        let PromptReturnData {
-            ai_answer,
-            ai_confidence,
-            heuristics_used,
-            ..
-        } = parse_and_prompt_return;
-
-        let email_training = email_training::ActiveModel {
-            id: ActiveValue::NotSet,
-            user_email: ActiveValue::Set(self.email_address.clone()),
-            email_id: ActiveValue::Set(email_message.id.clone()),
-            from: ActiveValue::Set(email_message.from.clone().unwrap_or_default()),
-            subject: ActiveValue::Set(email_message.subject.clone().unwrap_or_default()),
-            body: ActiveValue::Set(email_message.body.clone().unwrap_or_default()),
-            ai_answer: ActiveValue::Set(ai_answer.clone()),
-            confidence: ActiveValue::Set(*ai_confidence),
-            heuristics_used: ActiveValue::Set(*heuristics_used),
-        };
-
-        EmailTraining::insert(email_training)
-            .on_conflict(
-                OnConflict::column(email_training::Column::EmailId)
-                    .update_columns([
-                        email_training::Column::AiAnswer,
-                        email_training::Column::Confidence,
-                        email_training::Column::HeuristicsUsed,
-                    ])
-                    .to_owned(),
-            )
-            .exec(&self.conn)
-            .await
-            .context("Error inserting email training data")?;
-
-        Ok(())
     }
 
     /// Check thread status: unread replies, user replies, and multiple messages.
@@ -637,6 +567,7 @@ impl EmailProcessor {
 
         match self
             .record_processed_email(ProcessedEmailData {
+                user_id: self.user_id,
                 email_data: EmailScanData {
                     id: simplified.id,
                     thread_id: msg.thread_id,

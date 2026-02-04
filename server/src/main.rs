@@ -22,30 +22,27 @@ mod util;
 
 use std::{
     env,
-    future::Future,
     net::SocketAddr,
     num::NonZeroU16,
-    pin::Pin,
     sync::{atomic::AtomicU64, Arc},
     time::Duration,
 };
 
 use auth::session_store::AuthSessionStore;
 use axum::{extract::FromRef, Router};
-use db_core::prelude::*;
 use mimalloc::MiMalloc;
 use observability::ScanTracker;
-use prompt::TaskQueue;
 use rate_limiters::RateLimiters;
 use reqwest::Certificate;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use server_config::get_cert;
-use state::email_scanner::ActiveEmailProcessorMap;
+use state::email_scanner::ScannerPipeline;
 use tokio::{signal, task::JoinHandle};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::state::email_client_map::{self, EmailClientMap};
+use crate::util::banner;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -61,7 +58,6 @@ struct ServerState {
     conn: DatabaseConnection,
     rate_limiters: RateLimiters,
     session_store: AuthSessionStore,
-    pub task_queue: TaskQueue,
     pub email_client_cache: EmailClientCache,
     pub scan_tracker: ScanTracker,
 }
@@ -72,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
     let mut db_options = ConnectOptions::new(db_url);
     db_options.sqlx_logging(false);
+    println!("{}", *server_config::cfg);
 
     let conn = Database::connect(db_options)
         .await
@@ -95,7 +92,6 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let rate_limiters = RateLimiters::from_env();
-    let task_queue = TaskQueue::new();
     let scan_tracker = ScanTracker::new();
 
     let state = ServerState {
@@ -103,7 +99,6 @@ async fn main() -> anyhow::Result<()> {
         conn,
         rate_limiters,
         session_store,
-        task_queue,
         email_client_cache,
         scan_tracker,
     };
@@ -116,77 +111,11 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::Layer::default().with_ansi(false))
         .init();
 
-    let email_processing_map = ActiveEmailProcessorMap::new(state.clone());
-
     let mut scheduler = JobScheduler::new()
         .await
         .expect("Failed to create scheduler");
 
     {
-        let state_clone = state.clone();
-        let map = email_processing_map.clone();
-        scheduler
-            .add(Job::new_one_shot_async(
-                Duration::from_secs(1),
-                move |uuid, l| {
-                    create_processors_for_users(uuid, l, state_clone.clone(), map.clone())
-                },
-            )?)
-            .await?;
-
-        let queue = state.task_queue.clone();
-        let map = email_processing_map.clone();
-        scheduler
-            .add(Job::new_one_shot(
-                Duration::from_secs(2),
-                move |_uuid, _l| {
-                    state::tasks::run_email_queueing_loop(queue.clone(), map.clone());
-                },
-            )?)
-            .await?;
-
-        let queue = state.task_queue.clone();
-        let map = email_processing_map.clone();
-        scheduler
-            .add(Job::new_one_shot(
-                Duration::from_secs(5),
-                move |_uuid, _l| {
-                    state::tasks::run_categorization_loop(queue.clone(), map.clone());
-                },
-            )?)
-            .await?;
-
-        // Embedding processing loop - pulls from Background priority
-        let queue = state.task_queue.clone();
-        let http_client = state.http_client.clone();
-        let conn = state.conn.clone();
-        let rate_limiters = state.rate_limiters.clone();
-        scheduler
-            .add(Job::new_one_shot(
-                Duration::from_secs(10),
-                move |_uuid, _l| {
-                    state::tasks::run_embedding_loop(
-                        queue.clone(),
-                        http_client.clone(),
-                        conn.clone(),
-                        rate_limiters.clone(),
-                    );
-                },
-            )?)
-            .await?;
-
-        let state_clone = state.clone();
-        let map = email_processing_map.clone();
-        // Every 60 seconds, create processors for active users
-        scheduler
-            .add(Job::new_repeated_async(
-                Duration::from_secs(60),
-                move |uuid, l| {
-                    create_processors_for_users(uuid, l, state_clone.clone(), map.clone())
-                },
-            )?)
-            .await?;
-
         let http_client = state.http_client.clone();
         let conn = state.conn.clone();
         // Every 30 minutes, run auto email cleanup
@@ -232,12 +161,11 @@ async fn main() -> anyhow::Result<()> {
     }));
 
     let run_mode = env::var("RUN_MODE").expect("RUN_MODE must be defined!");
-    println!("RUN_MODE={}", run_mode);
 
     match run_mode.as_str() {
         "server" => {
             use routes::ServerRouter;
-            println!("-------- RUNNING SERVER MODE --------");
+            println!("{}", banner("RUNNING SERVER MODE"));
             let port: NonZeroU16 = env::var("PORT")
                 .unwrap_or_else(|_| "5006".to_string())
                 .parse()
@@ -248,7 +176,7 @@ async fn main() -> anyhow::Result<()> {
         }
         "scanner" => {
             use routes::ScannerRouter;
-            println!("-------- RUNNING SCANNER MODE --------");
+            println!("{}", banner("RUNNING SCANNER MODE"));
 
             // Sync system email rules from categorization config
             {
@@ -276,20 +204,33 @@ async fn main() -> anyhow::Result<()> {
             println!("Starting scheduler...");
             match scheduler.start().await {
                 Ok(_) => {
-                    println!("-------- SCHEDULER STARTED --------");
+                    println!("{}", banner("SCHEDULER STARTED"));
                 }
                 Err(e) => {
                     println!("Failed to start scheduler: {:?}", e);
                 }
             }
 
-            println!("Creating processing watch handle...");
-            let processing_watch_handle = state::tasks::watch(
-                state.task_queue.clone(),
-                email_processing_map.clone(),
-                state.rate_limiters.clone(),
-                state.scan_tracker.clone(),
-            );
+            // Start the scanner pipeline
+            println!("Starting scanner pipeline...");
+            let pipeline = ScannerPipeline::new(state.clone());
+            pipeline.start();
+            println!("{}", banner("SCANNER PIPELINE STARTED"));
+
+            // Spawn pipeline status monitoring task
+            let pipeline_monitor = {
+                let pipeline_tracker = pipeline.tracker().clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(5));
+                    loop {
+                        interval.tick().await;
+                        let status_table = pipeline_tracker.get_status_table();
+                        if !status_table.is_empty() {
+                            tracing::info!("Pipeline Status:\n{}", status_table);
+                        }
+                    }
+                })
+            };
 
             let port: NonZeroU16 = env::var("PORT")
                 .unwrap_or_else(|_| "5007".to_string())
@@ -301,10 +242,11 @@ async fn main() -> anyhow::Result<()> {
 
             tokio::select! {
                 _ = server_handle => {
-                    tracing::info!("Server shut down, exiting");
+                    tracing::info!("Server shut down, shutting down pipeline...");
+                    pipeline.shutdown();
                 }
-                _ = processing_watch_handle => {
-                    tracing::info!("Processing watch ended");
+                _ = pipeline_monitor => {
+                    tracing::info!("Pipeline monitor ended");
                 }
             }
         }
@@ -359,12 +301,13 @@ async fn shutdown_signal(mut scheduler: JobScheduler) {
 fn run_server(router: Router, scheduler: JobScheduler, port: NonZeroU16) -> JoinHandle<()> {
     tokio::spawn(async move {
         println!(
-            "-------- MAILCLERK {} RUNNING ON http://0.0.0.0:{} --------",
-            env::var("RUN_MODE").unwrap().to_uppercase(),
-            port
+            "{}",
+            banner(&format!(
+                "MAILCLERK {} RUNNING ON http://0.0.0.0:{}",
+                env::var("RUN_MODE").unwrap().to_uppercase(),
+                port
+            ))
         );
-        println!("{}", *server_config::cfg);
-        println!("{}", *server_config::CATEGORIZATION_CONFIG);
 
         let addr = SocketAddr::from(([0, 0, 0, 0], port.get()));
         tracing::debug!("listening on {addr}");
@@ -376,32 +319,6 @@ fn run_server(router: Router, scheduler: JobScheduler, port: NonZeroU16) -> Join
         .with_graceful_shutdown(shutdown_signal(scheduler))
         .await
         .unwrap();
-    })
-}
-
-fn create_processors_for_users(
-    uuid: Uuid,
-    mut l: JobScheduler,
-    state: ServerState,
-    map: ActiveEmailProcessorMap,
-) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-    let state = state.clone();
-    let map = map.clone();
-    tracing::info!("Job: {}\n Creating processors for active users...", uuid);
-    Box::pin(async move {
-        match state::tasks::add_users_to_processing(state, map.clone()).await {
-            Ok(_) => {
-                tracing::info!("Processor Creation Job {} succeeded", uuid);
-            }
-            Err(e) => {
-                tracing::error!("Job failed: {:?}", e);
-            }
-        }
-
-        let next_tick = l.next_tick_for_job(uuid).await;
-        if let Ok(Some(ts)) = next_tick {
-            tracing::info!("Next time for processor creation job is {:?}", ts)
-        }
     })
 }
 
@@ -464,7 +381,6 @@ mod tests {
             conn,
             rate_limiters: RateLimiters::from_env(),
             session_store,
-            task_queue: TaskQueue::new(),
             email_client_cache,
             scan_tracker: ScanTracker::new(),
         };

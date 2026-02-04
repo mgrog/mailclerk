@@ -1,6 +1,11 @@
 pub mod batch_processor;
 pub mod initial_scan;
-pub(crate) mod queue_processor;
+pub mod scanner_pipeline;
 pub mod shared;
 
-pub use queue_processor::processor_map::ActiveEmailProcessorMap;
+// Old queue processor system - replaced by scanner_pipeline
+// Keeping module for reference but not exposing publicly
+#[allow(dead_code)]
+mod queue_processor;
+
+pub use scanner_pipeline::ScannerPipeline;

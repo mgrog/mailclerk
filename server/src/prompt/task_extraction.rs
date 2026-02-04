@@ -5,6 +5,8 @@ use sea_orm::FromJsonQueryResult;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use std::sync::LazyLock;
+
 use crate::email::simplified_message::SimplifiedMessage;
 use crate::rate_limiters;
 use crate::HttpClient;
@@ -16,6 +18,11 @@ use crate::{
 use super::mistral::ChatApiResponseOrError;
 
 const AI_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completions";
+
+pub static TASK_EXTRACTION_SYSTEM_PROMPT_TOKEN_ESTIMATE: LazyLock<i64> = LazyLock::new(|| {
+    let prompt_text = system_prompt();
+    tokenizer::token_count(&prompt_text).unwrap() as i64
+});
 
 pub fn system_prompt() -> String {
     formatdoc! {r#"

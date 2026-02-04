@@ -219,6 +219,7 @@ pub async fn run_initial_scan_for_user(
                 let extracted_tasks = task_map.get(&email.id).cloned().unwrap_or_default();
 
                 Some(ProcessedEmailData {
+                    user_id,
                     email_data: email,
                     category: result.label,
                     ai_answer: result.category,
@@ -230,7 +231,7 @@ pub async fn run_initial_scan_for_user(
 
         // Phase 4: Batch insert in chunks
         scan_tracker.set_phase(user_id, ScanPhase::Inserting);
-        let stored_count = batch_insert_processed_emails(&conn, user_id, processed_emails).await?;
+        let stored_count = batch_insert_processed_emails(&conn, processed_emails).await?;
         scan_tracker.set_processed_emails(user_id, stored_count);
 
         tracing::info!(

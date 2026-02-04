@@ -39,6 +39,7 @@ pub struct EmailScanData {
 /// Result of processing a single email
 #[derive(Debug)]
 pub struct ProcessedEmailData {
+    pub user_id: i32,
     pub email_data: EmailScanData,
     pub category: String,
     pub ai_answer: String,

@@ -1,3 +1,4 @@
+use crate::util::banner;
 use config::{Config, ConfigError};
 use itertools::Itertools;
 use serde::Deserialize;
@@ -35,6 +36,11 @@ pub struct Heuristic {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ContinuousScanConfig {
+    pub max_lookback_days: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModelConfig {
     pub id: String,
     pub temperature: f64,
@@ -57,12 +63,6 @@ pub struct TokenLimits {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Settings {
-    pub training_mode: bool,
-    pub email_max_age_days: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct EmbeddingConfig {
     pub batch_size: usize,
     pub batch_wait_ms: u64,
@@ -73,6 +73,57 @@ pub struct InitialScanConfig {
     pub max_emails: usize,
     pub lookback_days: i64,
     pub batch_token_limit: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScannerPipelineConfig {
+    /// Polling interval for new email IDs in seconds (default: 5)
+    #[serde(default = "default_polling_interval")]
+    pub polling_interval_secs: u64,
+
+    /// Batch job interval in seconds (default: 60)
+    #[serde(default = "default_batch_interval")]
+    pub batch_interval_secs: u64,
+
+    /// Max users to poll in parallel (default: 10)
+    #[serde(default = "default_max_parallel_users")]
+    pub max_parallel_poll_users: usize,
+
+    /// Max retries for failed items (default: 3)
+    #[serde(default = "default_max_retries")]
+    pub max_retry_count: u32,
+
+    /// TTL for recently processed IDs in seconds (default: 3600 = 1 hour)
+    #[serde(default = "default_recently_processed_ttl")]
+    pub recently_processed_ttl_secs: u64,
+}
+
+fn default_polling_interval() -> u64 {
+    5
+}
+fn default_batch_interval() -> u64 {
+    60
+}
+fn default_max_parallel_users() -> usize {
+    10
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_recently_processed_ttl() -> u64 {
+    3600
+}
+
+impl Default for ScannerPipelineConfig {
+    fn default() -> Self {
+        Self {
+            polling_interval_secs: default_polling_interval(),
+            batch_interval_secs: default_batch_interval(),
+            max_parallel_poll_users: default_max_parallel_users(),
+            max_retry_count: default_max_retries(),
+            recently_processed_ttl_secs: default_recently_processed_ttl(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,13 +141,15 @@ struct FEConfig {
 
 #[derive(Debug, Deserialize)]
 struct ConfigFile {
-    settings: Settings,
     api: ApiConfig,
     heuristics: Vec<Heuristic>,
     model: ModelConfig,
     frontend: FEConfig,
     embedding: EmbeddingConfig,
     initial_scan: InitialScanConfig,
+    continuous_scan: ContinuousScanConfig,
+    #[serde(default)]
+    scanner_pipeline: ScannerPipelineConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,7 +174,6 @@ impl Frontend {
 
 #[derive(Debug)]
 pub struct ServerConfig {
-    pub settings: Settings,
     pub api: ApiConfig,
     pub heuristics: Vec<Heuristic>,
     pub gmail_config: GmailConfig,
@@ -129,25 +181,35 @@ pub struct ServerConfig {
     pub frontend: Frontend,
     pub embedding: EmbeddingConfig,
     pub initial_scan: InitialScanConfig,
+    pub continuous_scan: ContinuousScanConfig,
+    pub scanner_pipeline: ScannerPipelineConfig,
 }
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Server Config:\n{:?}\n\nAPI: {:?}\n\nHeuristics:\n{}\n\nGmail Config: {:?}\n\nModel Config: {:?}\n\nFrontend Config: {:?}\n\nEmbedding Config: {:?}\n\nInitial Scan Config: {:?}",
-            self.settings,
-            self.api,
-            self.heuristics
-                .iter()
-                .map(|c| format!("{} -> {}", c.from, c.mail_label))
-                .collect::<Vec<_>>().join("\n"),
-            self.gmail_config,
-            self.model,
-            self.frontend,
-            self.embedding,
-            self.initial_scan,
-        )
+        let sections = [
+            ("API", format!("{:?}", self.api)),
+            ("Gmail Config", format!("{:?}", self.gmail_config)),
+            ("Model Config", format!("{:?}", self.model)),
+            ("Frontend Config", format!("{:?}", self.frontend)),
+            ("Embedding Config", format!("{:?}", self.embedding)),
+            ("Initial Scan Config", format!("{:?}", self.initial_scan)),
+            (
+                "Continuous Scan Config",
+                format!("{:?}", self.continuous_scan),
+            ),
+            (
+                "Scanner Pipeline Config",
+                format!("{:?}", self.scanner_pipeline),
+            ),
+        ];
+
+        writeln!(f, "{}", banner("SERVER CONFIG"))?;
+        for (name, value) in sections {
+            writeln!(f)?;
+            writeln!(f, "{}: {}", name, value)?;
+        }
+        Ok(())
     }
 }
 
@@ -199,13 +261,14 @@ pub static cfg: LazyLock<ServerConfig> = LazyLock::new(|| {
         .expect("config.toml is invalid");
 
     let ConfigFile {
-        settings,
         api,
         model,
         heuristics,
         frontend,
         embedding,
         initial_scan,
+        continuous_scan,
+        scanner_pipeline,
     } = cfg_file;
 
     let frontend = Frontend {
@@ -215,7 +278,6 @@ pub static cfg: LazyLock<ServerConfig> = LazyLock::new(|| {
     };
 
     ServerConfig {
-        settings,
         api,
         heuristics,
         gmail_config,
@@ -223,6 +285,8 @@ pub static cfg: LazyLock<ServerConfig> = LazyLock::new(|| {
         frontend,
         embedding,
         initial_scan,
+        continuous_scan,
+        scanner_pipeline,
     }
 });
 

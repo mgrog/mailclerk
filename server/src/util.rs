@@ -21,3 +21,23 @@ pub fn format_vector<T: std::fmt::Display>(v: &[T]) -> String {
     let inner = v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
     format!("[{inner}]")
 }
+
+/// Format a message as a fixed-width banner: `--------MESSAGE--------`
+/// Total width is always 70 characters. Messages longer than 66 chars are truncated.
+pub fn banner(msg: &str) -> String {
+    const TOTAL_WIDTH: usize = 70;
+    const MIN_DASHES: usize = 2;
+    let max_msg_len = TOTAL_WIDTH - (MIN_DASHES * 2);
+
+    let msg = if msg.len() > max_msg_len {
+        &msg[..max_msg_len]
+    } else {
+        msg
+    };
+
+    let remaining = TOTAL_WIDTH - msg.len();
+    let left = remaining / 2;
+    let right = remaining - left;
+
+    format!("{}-{}-{}", "-".repeat(left - 1), msg, "-".repeat(right - 1))
+}

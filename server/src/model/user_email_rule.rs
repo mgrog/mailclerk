@@ -37,6 +37,25 @@ impl UserEmailRuleCtrl {
         Ok(user_email_rules)
     }
 
+    /// Get the set of user IDs that have at least one custom email rule
+    pub async fn get_users_with_rules(
+        conn: &DatabaseConnection,
+        user_ids: &[i32],
+    ) -> AppResult<Vec<i32>> {
+        use sea_orm::QuerySelect;
+
+        let users_with_rules: Vec<i32> = UserEmailRule::find()
+            .filter(user_email_rule::Column::UserId.is_in(user_ids.to_vec()))
+            .select_only()
+            .column(user_email_rule::Column::UserId)
+            .group_by(user_email_rule::Column::UserId)
+            .into_tuple()
+            .all(conn)
+            .await?;
+
+        Ok(users_with_rules)
+    }
+
     pub async fn get_by_user_id(
         conn: &DatabaseConnection,
         user_id: i32,

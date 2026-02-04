@@ -159,6 +159,29 @@ impl UserCtrl {
         Ok(user)
     }
 
+    pub async fn get_with_account_access_and_usage_by_id(
+        conn: &DatabaseConnection,
+        user_id: i32,
+    ) -> AppResult<UserWithAccountAccessAndUsage> {
+        let user = User::find()
+            .filter(user::Column::Id.eq(user_id))
+            .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
+            .join(
+                JoinType::InnerJoin,
+                user::Relation::UserTokenUsageStat.def(),
+            )
+            .select_user_account_access_cols()
+            .select_user_tokens_consumed()
+            .column(user::Column::DailyTokenLimit)
+            .into_model::<UserWithAccountAccessAndUsage>()
+            .one(conn)
+            .await
+            .context("Error fetching user with account access")?
+            .ok_or(AppError::NotFound("User not found".to_string()))?;
+
+        Ok(user)
+    }
+
     pub async fn all(conn: &DatabaseConnection) -> AppResult<Vec<UserWithAccountAccessAndUsage>> {
         let users = User::find()
             .join(JoinType::InnerJoin, user::Relation::UserAccountAccess.def())
@@ -238,6 +261,90 @@ impl UserCtrl {
             .context("Error fetching users with available quota")?;
 
         Ok(users)
+    }
+
+    /// Fetches users available for polling with only the fields needed for
+    /// email client creation and quota checks. This is more efficient than
+    /// `all_available_for_processing` when full user data is not required.
+    pub async fn all_pollable(conn: &DatabaseConnection) -> AppResult<Vec<PollableUser>> {
+        let today = chrono::Utc::now().date_naive();
+
+        let raw_sql = r#"
+            SELECT
+                u.id,
+                u.email,
+                uaa.id AS user_account_access_id,
+                uaa.access_token,
+                uaa.refresh_token,
+                uaa.expires_at,
+                COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
+                u.daily_token_limit
+            FROM
+                "user" AS u
+            JOIN
+                "user_account_access" AS uaa ON u.email = uaa.user_email
+            LEFT JOIN
+                "user_token_usage_stat" ON u.email = "user_token_usage_stat".user_email AND "user_token_usage_stat".date = $1::date
+            WHERE
+                u.subscription_status = (CAST('ACTIVE' AS subscription_status))
+                AND (COALESCE("user_token_usage_stat".tokens_consumed, 0) < u.daily_token_limit)
+                AND uaa.needs_reauthentication = FALSE
+                AND u.is_initial_scan_complete = TRUE
+        "#;
+
+        let users = PollableUser::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            raw_sql,
+            [today.format("%Y-%m-%d").to_string().into()],
+        ))
+        .all(conn)
+        .await
+        .context("Error fetching pollable users")?;
+
+        Ok(users)
+    }
+
+    /// Fetches a single pollable user by email. Used primarily for testing.
+    pub async fn get_pollable_by_email(
+        conn: &DatabaseConnection,
+        email: &str,
+    ) -> AppResult<PollableUser> {
+        let today = chrono::Utc::now().date_naive();
+
+        let raw_sql = r#"
+            SELECT
+                u.id,
+                u.email,
+                uaa.id AS user_account_access_id,
+                uaa.access_token,
+                uaa.refresh_token,
+                uaa.expires_at,
+                COALESCE("user_token_usage_stat".tokens_consumed, 0) AS tokens_consumed,
+                u.daily_token_limit
+            FROM
+                "user" AS u
+            JOIN
+                "user_account_access" AS uaa ON u.email = uaa.user_email
+            LEFT JOIN
+                "user_token_usage_stat" ON u.email = "user_token_usage_stat".user_email AND "user_token_usage_stat".date = $1::date
+            WHERE
+                u.email = $2
+        "#;
+
+        let user = PollableUser::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            raw_sql,
+            [
+                today.format("%Y-%m-%d").to_string().into(),
+                email.into(),
+            ],
+        ))
+        .one(conn)
+        .await
+        .context("Error fetching pollable user")?
+        .ok_or_else(|| AppError::NotFound(format!("User not found: {}", email)))?;
+
+        Ok(user)
     }
 
     pub async fn all_with_cancelled_subscriptions(
@@ -401,6 +508,59 @@ impl EmailAddress for UserWithAccountAccessAndUsage {
 }
 
 impl AccountAccess for UserWithAccountAccessAndUsage {
+    fn get_user_account_access_id(&self) -> i32 {
+        self.user_account_access_id
+    }
+
+    fn access_token(&self) -> anyhow::Result<String> {
+        decrypt_token("access", &self.access_token, &self.email)
+    }
+
+    fn refresh_token(&self) -> anyhow::Result<String> {
+        decrypt_token("refresh", &self.refresh_token, &self.email)
+    }
+
+    fn get_expires_at(&self) -> DateTimeWithTimeZone {
+        self.expires_at
+    }
+
+    fn set_new_access_token(&mut self, new_access_token: &str) -> anyhow::Result<()> {
+        let enc_access_token = crypt::encrypt(new_access_token)
+            .map_err(|e| anyhow!("Failed to encrypt access code: {e}"))?;
+
+        self.access_token = enc_access_token;
+
+        Ok(())
+    }
+}
+
+/// Lightweight struct for polling operations - contains only fields needed for
+/// email client creation and quota checks, avoiding overfetching.
+#[derive(FromQueryResult, Clone, Debug)]
+pub struct PollableUser {
+    pub id: i32,
+    pub email: String,
+    pub user_account_access_id: i32,
+    access_token: String,
+    refresh_token: String,
+    pub expires_at: DateTimeWithTimeZone,
+    pub tokens_consumed: i64,
+    pub daily_token_limit: i64,
+}
+
+impl Id for PollableUser {
+    fn id(&self) -> i32 {
+        self.id
+    }
+}
+
+impl EmailAddress for PollableUser {
+    fn email(&self) -> &str {
+        &self.email
+    }
+}
+
+impl AccountAccess for PollableUser {
     fn get_user_account_access_id(&self) -> i32 {
         self.user_account_access_id
     }

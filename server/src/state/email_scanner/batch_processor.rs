@@ -220,23 +220,19 @@ pub async fn run_task_extraction_batch(
 ///
 /// # Arguments
 /// * `conn` - Database connection
-/// * `user_id` - ID of the user who owns these emails
-/// * `processed_emails` - Vector of processed email data to insert
+/// * `processed_emails` - Vector of processed email data to insert (each contains user_id)
 ///
 /// # Returns
 /// Total number of emails inserted
 pub async fn batch_insert_processed_emails(
     conn: &DatabaseConnection,
-    user_id: i32,
     processed_emails: Vec<ProcessedEmailData>,
 ) -> anyhow::Result<usize> {
     let mut total_inserted = 0;
 
     for chunk in processed_emails.chunks(DB_INSERT_CHUNK_SIZE) {
-        let active_models: Vec<processed_email::ActiveModel> = chunk
-            .iter()
-            .map(|data| build_active_model(user_id, data))
-            .collect();
+        let active_models: Vec<processed_email::ActiveModel> =
+            chunk.iter().map(build_active_model).collect();
 
         let count = active_models.len();
 
@@ -270,12 +266,11 @@ pub async fn batch_insert_processed_emails(
 /// ready for database insertion.
 ///
 /// # Arguments
-/// * `user_id` - ID of the user who owns this email
-/// * `data` - Processed email data
+/// * `data` - Processed email data (contains user_id)
 ///
 /// # Returns
 /// ActiveModel ready for insertion
-pub fn build_active_model(user_id: i32, data: &ProcessedEmailData) -> processed_email::ActiveModel {
+pub fn build_active_model(data: &ProcessedEmailData) -> processed_email::ActiveModel {
     let closest_due_date = data
         .extracted_tasks
         .iter()
@@ -302,7 +297,7 @@ pub fn build_active_model(user_id: i32, data: &ProcessedEmailData) -> processed_
     processed_email::ActiveModel {
         id: ActiveValue::Set(data.email_data.id.clone()),
         thread_id: ActiveValue::Set(data.email_data.thread_id.clone()),
-        user_id: ActiveValue::Set(user_id),
+        user_id: ActiveValue::Set(data.user_id),
         category: ActiveValue::Set(data.category.clone()),
         ai_answer: ActiveValue::Set(data.ai_answer.clone()),
         ai_confidence: ActiveValue::Set(data.ai_confidence.to_string()),
