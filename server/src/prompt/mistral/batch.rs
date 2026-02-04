@@ -259,7 +259,7 @@ pub struct CategoryResult {
 #[derive(Debug, Clone)]
 pub struct TaskExtractionResult {
     pub email_id: String,
-    pub tasks: Vec<super::super::task_extraction::ExtractedTask>,
+    pub tasks: Vec<super::task_extraction::ExtractedTask>,
     pub token_usage: i64,
 }
 
@@ -412,6 +412,30 @@ pub async fn get_batch_job(http_client: &HttpClient, job_id: &str) -> anyhow::Re
         .context("Failed to parse batch job response")
 }
 
+/// Cancel a batch job that is in queued or running status
+///
+/// POST /v1/batch/jobs/{job_id}/cancel
+pub async fn cancel_batch_job(http_client: &HttpClient, job_id: &str) -> anyhow::Result<BatchJob> {
+    let url = format!("{}/{}/cancel", BATCH_JOBS_ENDPOINT, job_id);
+
+    let resp = http_client
+        .post(&url)
+        .bearer_auth(&cfg.api.key)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to cancel batch job")?;
+
+    if !resp.status().is_success() {
+        let error_body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("Failed to cancel batch job {}: {}", job_id, error_body));
+    }
+
+    resp.json::<BatchJob>()
+        .await
+        .context("Failed to parse cancel response")
+}
+
 /// Wait for a batch job to complete, polling at regular intervals
 ///
 /// Optionally accepts a tracking function that will be called with the number
@@ -555,7 +579,7 @@ pub fn parse_categorization_results(results: Vec<BatchResultLine>) -> Vec<Catego
 
 /// Parse task extraction results from batch output
 pub fn parse_task_extraction_results(results: Vec<BatchResultLine>) -> Vec<TaskExtractionResult> {
-    use super::super::task_extraction::ExtractedTask;
+    use super::task_extraction::ExtractedTask;
 
     results
         .into_iter()
@@ -605,13 +629,15 @@ pub struct BatchJobResult {
 
 /// Run a complete batch job: upload file, create job, wait, download results, cleanup
 ///
-/// Optionally accepts a tracking function that will be called with the number
-/// of completed requests on each poll while waiting for the job.
+/// Optionally accepts:
+/// - `track_fn`: Called with the number of completed requests on each poll while waiting for the job
+/// - `on_job_created`: Called immediately after job creation with the job ID, allowing external tracking
 pub async fn run_batch_job(
     http_client: &HttpClient,
     requests: Vec<BatchRequest>,
     job_name: &str,
     track_fn: Option<&(dyn Fn(u64) + Send + Sync)>,
+    on_job_created: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> anyhow::Result<BatchJobResult> {
     if requests.is_empty() {
         return Ok(BatchJobResult {
@@ -631,6 +657,11 @@ pub async fn run_batch_job(
     let job_id = job.id.clone();
     let input_files = job.input_files.clone();
     tracing::info!("Created batch job: {} (status: {:?})", job.id, job.status);
+
+    // Notify caller of job creation for tracking
+    if let Some(f) = on_job_created {
+        f(&job_id);
+    }
 
     // Wait for completion
     let completed_job = wait_for_job(http_client, &job.id, track_fn).await?;

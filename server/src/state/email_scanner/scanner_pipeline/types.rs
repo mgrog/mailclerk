@@ -2,8 +2,42 @@
 //!
 //! Core data structures used throughout the scanner pipeline.
 
+use std::time::{Duration, Instant};
+
 use crate::email::simplified_message::SimplifiedMessage;
-use crate::prompt::task_extraction::ExtractedTask;
+use crate::prompt::mistral::task_extraction::ExtractedTask;
+use crate::server_config::cfg;
+
+/// Processing mode for the scanner pipeline
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ProcessingMode {
+    /// Use Mistral batch API (default, cost-effective)
+    #[default]
+    Batch,
+    /// Use on-demand API due to batch congestion
+    OnDemand {
+        /// When on-demand mode was activated
+        activated_at: Instant,
+    },
+}
+
+impl ProcessingMode {
+    /// Check if currently in on-demand mode
+    pub fn is_on_demand(&self) -> bool {
+        matches!(self, ProcessingMode::OnDemand { .. })
+    }
+
+    /// Check if on-demand mode duration has expired and should revert to batch
+    pub fn should_revert_to_batch(&self) -> bool {
+        match self {
+            ProcessingMode::OnDemand { activated_at } => {
+                let duration = Duration::from_secs(cfg.scanner_pipeline.on_demand_duration_secs);
+                activated_at.elapsed() > duration
+            }
+            ProcessingMode::Batch => false,
+        }
+    }
+}
 
 /// Item flowing through the scanner pipeline
 #[derive(Debug, Clone)]

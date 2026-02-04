@@ -36,8 +36,8 @@ use crate::{
         user::UserWithAccountAccessAndUsage, user_token_usage::UserTokenUsageStatsCtrl,
     },
     prompt::{
-        mistral::{self},
-        task_extraction, Priority, QueueEntry, TaskData, TaskQueue,
+        mistral::{self, task_extraction},
+        Priority, QueueEntry, TaskData, TaskQueue,
     },
     rate_limiters::RateLimiters,
     HttpClient, ServerState,

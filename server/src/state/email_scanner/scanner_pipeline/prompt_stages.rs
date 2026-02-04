@@ -4,9 +4,12 @@
 //! user-defined categorization (user rules), and task extraction.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use anyhow::Context;
+use futures::StreamExt;
 use sea_orm::DatabaseConnection;
 use tokio::time::{interval, Duration};
 use tokio_util::sync::CancellationToken;
@@ -15,10 +18,12 @@ use crate::{
     email::rules::{EmailRule, EmailRules, SystemEmailRules, UserEmailRules, UNKNOWN_RULE},
     model::{labels::UtilityLabels, user_email_rule::UserEmailRuleCtrl},
     observability::PipelineTracker,
-    prompt::{
-        mistral::{self, SYSTEM_PROMPT_TOKEN_ESTIMATE},
+    prompt::mistral::{
+        self,
         task_extraction::{self, TASK_EXTRACTION_SYSTEM_PROMPT_TOKEN_ESTIMATE},
+        SYSTEM_PROMPT_TOKEN_ESTIMATE,
     },
+    rate_limiters::RateLimiters,
     server_config::cfg,
     state::email_scanner::shared::find_matching_rule_system,
     HttpClient,
@@ -26,8 +31,13 @@ use crate::{
 
 use super::{
     queues::PipelineQueues,
-    types::{make_custom_id, CategorizationResult, FailedItem, PipelineItem, PipelineStage},
+    types::{make_custom_id, CategorizationResult, FailedItem, PipelineItem, PipelineStage, ProcessingMode},
 };
+
+/// Timeout for batch jobs in queued state before switching to on-demand mode (10 minutes)
+const BATCH_QUEUE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Interval for checking batch job congestion (30 seconds)
+const CONGESTION_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Runs batch jobs for each pipeline stage
 #[derive(Clone)]
@@ -36,6 +46,11 @@ pub struct StageRunner {
     conn: DatabaseConnection,
     queues: Arc<PipelineQueues>,
     tracker: PipelineTracker,
+    rate_limiters: RateLimiters,
+    /// Current processing mode (batch or on-demand)
+    processing_mode: Arc<RwLock<ProcessingMode>>,
+    /// Active batch jobs being tracked for congestion detection: job_id -> (stage, submitted_at)
+    active_batch_jobs: Arc<RwLock<HashMap<String, (PipelineStage, Instant)>>>,
 }
 
 impl StageRunner {
@@ -44,19 +59,24 @@ impl StageRunner {
         conn: DatabaseConnection,
         queues: Arc<PipelineQueues>,
         tracker: PipelineTracker,
+        rate_limiters: RateLimiters,
     ) -> Self {
         Self {
             http_client,
             conn,
             queues,
             tracker,
+            rate_limiters,
+            processing_mode: Arc::new(RwLock::new(ProcessingMode::Batch)),
+            active_batch_jobs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    /// Main batch processing loop - runs every batch_interval
+    /// Main processing loop - runs every batch_interval, with congestion checks
     pub async fn run(&self, shutdown: CancellationToken) {
         let batch_interval = Duration::from_secs(cfg.scanner_pipeline.batch_interval_secs);
-        let mut interval = interval(batch_interval);
+        let mut batch_tick = interval(batch_interval);
+        let mut congestion_tick = interval(CONGESTION_CHECK_INTERVAL);
 
         tracing::info!(
             "Stage runner started (interval: {}s)",
@@ -69,8 +89,32 @@ impl StageRunner {
                     tracing::info!("Stage runner shutting down");
                     break;
                 }
-                _ = interval.tick() => {
-                    self.run_batch_cycle().await;
+                _ = congestion_tick.tick() => {
+                    self.check_and_handle_congestion().await;
+                }
+                _ = batch_tick.tick() => {
+                    // Check if we should revert from on-demand to batch mode
+                    {
+                        let mut mode = self.processing_mode.write().unwrap();
+                        if mode.should_revert_to_batch() {
+                            tracing::info!("On-demand mode duration expired, reverting to batch mode");
+                            *mode = ProcessingMode::Batch;
+                            self.tracker.set_on_demand(false);
+                        }
+                    }
+
+                    // Process based on current mode
+                    let current_mode = *self.processing_mode.read().unwrap();
+                    match current_mode {
+                        ProcessingMode::Batch => {
+                            self.run_batch_cycle().await;
+                        }
+                        ProcessingMode::OnDemand { .. } => {
+                            if let Err(e) = self.process_on_demand().await {
+                                tracing::error!("On-demand processing error: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -156,14 +200,29 @@ impl StageRunner {
             tracker.update_batch_progress(PipelineStage::MainCategorization, completed as usize);
         };
 
-        // Submit batch
+        // Create job tracking callback
+        let active_jobs = self.active_batch_jobs.clone();
+        let on_job_created = move |job_id: &str| {
+            active_jobs.write().unwrap()
+                .insert(job_id.to_string(), (PipelineStage::MainCategorization, Instant::now()));
+        };
+
+        // Submit batch job
         let batch_result = mistral::batch::run_batch_job(
             &self.http_client,
             requests,
             "main_categorization",
             Some(&track_fn),
+            Some(&on_job_created),
         )
         .await;
+
+        // Remove job from tracking after completion
+        if let Ok(ref result) = batch_result {
+            if !result.job_id.is_empty() {
+                self.active_batch_jobs.write().unwrap().remove(&result.job_id);
+            }
+        }
 
         match batch_result {
             Ok(result) => {
@@ -420,14 +479,29 @@ impl StageRunner {
             );
         };
 
+        // Create job tracking callback
+        let active_jobs = self.active_batch_jobs.clone();
+        let on_job_created = move |job_id: &str| {
+            active_jobs.write().unwrap()
+                .insert(job_id.to_string(), (PipelineStage::UserDefinedCategorization, Instant::now()));
+        };
+
         // Submit batch
         let batch_result = mistral::batch::run_batch_job(
             &self.http_client,
             requests,
             "user_defined_categorization",
             Some(&track_fn),
+            Some(&on_job_created),
         )
         .await;
+
+        // Remove job from tracking after completion
+        if let Ok(ref result) = batch_result {
+            if !result.job_id.is_empty() {
+                self.active_batch_jobs.write().unwrap().remove(&result.job_id);
+            }
+        }
 
         match batch_result {
             Ok(result) => {
@@ -649,14 +723,29 @@ impl StageRunner {
             tracker.update_batch_progress(PipelineStage::TaskExtraction, completed as usize);
         };
 
+        // Create job tracking callback
+        let active_jobs = self.active_batch_jobs.clone();
+        let on_job_created = move |job_id: &str| {
+            active_jobs.write().unwrap()
+                .insert(job_id.to_string(), (PipelineStage::TaskExtraction, Instant::now()));
+        };
+
         // Submit batch
         let batch_result = mistral::batch::run_batch_job(
             &self.http_client,
             requests,
             "task_extraction",
             Some(&track_fn),
+            Some(&on_job_created),
         )
         .await;
+
+        // Remove job from tracking after completion
+        if let Ok(ref result) = batch_result {
+            if !result.job_id.is_empty() {
+                self.active_batch_jobs.write().unwrap().remove(&result.job_id);
+            }
+        }
 
         match batch_result {
             Ok(result) => {
@@ -790,5 +879,540 @@ impl StageRunner {
                 dropped
             );
         }
+    }
+
+    // =========================================================================
+    // Congestion Detection & Mode Switching
+    // =========================================================================
+
+    /// Check for batch job congestion and switch to on-demand mode if needed
+    async fn check_and_handle_congestion(&self) {
+        // Skip if already in on-demand mode
+        if self.processing_mode.read().unwrap().is_on_demand() {
+            return;
+        }
+
+        // Find jobs that have been tracked for longer than the timeout
+        let jobs_to_check: Vec<String> = {
+            let jobs = self.active_batch_jobs.read().unwrap();
+            jobs.iter()
+                .filter(|(_, (_, submitted_at))| submitted_at.elapsed() > BATCH_QUEUE_TIMEOUT)
+                .map(|(job_id, _)| job_id.clone())
+                .collect()
+        };
+
+        if jobs_to_check.is_empty() {
+            return;
+        }
+
+        // Check actual job status from API
+        for job_id in &jobs_to_check {
+            match mistral::batch::get_batch_job(&self.http_client, job_id).await {
+                Ok(job) if job.status == mistral::batch::BatchJobStatus::Queued => {
+                    tracing::warn!(
+                        "Batch job {} stuck in Queued for >10 minutes, switching to on-demand mode",
+                        job_id
+                    );
+                    self.switch_to_on_demand_mode().await;
+                    return;
+                }
+                Ok(job) => {
+                    // Job is running or completed, update tracker
+                    if job.status.is_terminal() {
+                        self.active_batch_jobs.write().unwrap().remove(job_id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check job {} status: {}", job_id, e);
+                }
+            }
+        }
+    }
+
+    /// Switch to on-demand mode: cancel only queued batch jobs
+    async fn switch_to_on_demand_mode(&self) {
+        tracing::info!("Switching to on-demand mode due to batch congestion");
+
+        // Get all tracked job IDs
+        let jobs_to_check: Vec<String> = {
+            self.active_batch_jobs.read().unwrap()
+                .keys()
+                .cloned()
+                .collect()
+        };
+
+        // Only cancel jobs that are still in Queued status
+        for job_id in &jobs_to_check {
+            match mistral::batch::get_batch_job(&self.http_client, job_id).await {
+                Ok(job) if job.status == mistral::batch::BatchJobStatus::Queued => {
+                    match mistral::batch::cancel_batch_job(&self.http_client, job_id).await {
+                        Ok(cancelled_job) => {
+                            tracing::info!("Cancelled queued batch job {}: {:?}", job_id, cancelled_job.status);
+                            self.active_batch_jobs.write().unwrap().remove(job_id);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to cancel batch job {}: {}", job_id, e);
+                        }
+                    }
+                }
+                Ok(job) => {
+                    // Job is running or completed - let it continue
+                    tracing::info!(
+                        "Batch job {} is {:?}, allowing to continue",
+                        job_id,
+                        job.status
+                    );
+                    if job.status.is_terminal() {
+                        self.active_batch_jobs.write().unwrap().remove(job_id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check job {} status during mode switch: {}", job_id, e);
+                }
+            }
+        }
+
+        // Set on-demand mode
+        *self.processing_mode.write().unwrap() = ProcessingMode::OnDemand {
+            activated_at: Instant::now(),
+        };
+        self.tracker.set_on_demand(true);
+    }
+
+    /// Track a batch job for congestion monitoring
+    fn track_batch_job(&self, job_id: String, stage: PipelineStage) {
+        self.active_batch_jobs.write().unwrap()
+            .insert(job_id, (stage, Instant::now()));
+    }
+
+    /// Remove a batch job from tracking (after completion)
+    fn untrack_batch_job(&self, job_id: &str) {
+        self.active_batch_jobs.write().unwrap().remove(job_id);
+    }
+
+    /// Force on-demand processing mode (for testing)
+    #[cfg(any(test, feature = "integration"))]
+    pub fn force_on_demand_mode(&self) {
+        *self.processing_mode.write().unwrap() = ProcessingMode::OnDemand {
+            activated_at: Instant::now(),
+        };
+        self.tracker.set_on_demand(true);
+    }
+
+    /// Check if currently in on-demand mode
+    pub fn is_on_demand_mode(&self) -> bool {
+        self.processing_mode.read().unwrap().is_on_demand()
+    }
+
+    // =========================================================================
+    // On-Demand Processing
+    // =========================================================================
+
+    /// Process all queues in on-demand mode with rate limiting
+    /// Priority order: task_extraction > user_defined > main_cat
+    async fn process_on_demand(&self) -> anyhow::Result<()> {
+        // Requeue failed items first
+        self.requeue_failed_items();
+
+        // Process in priority order
+        self.process_task_extraction_on_demand().await?;
+        self.process_user_defined_on_demand().await?;
+        self.process_main_categorization_on_demand().await?;
+
+        Ok(())
+    }
+
+    /// Reorder items using round-robin by user_id for fair distribution
+    fn round_robin_by_user(items: Vec<PipelineItem>) -> Vec<PipelineItem> {
+        if items.is_empty() {
+            return items;
+        }
+
+        // Group items by user
+        let mut by_user: HashMap<i32, Vec<PipelineItem>> = HashMap::new();
+        for item in items {
+            by_user.entry(item.user_id).or_default().push(item);
+        }
+
+        // Round-robin merge
+        let mut result = Vec::new();
+        let mut user_iters: Vec<_> = by_user.into_values().map(|v| v.into_iter()).collect();
+
+        loop {
+            let mut added_any = false;
+            for iter in &mut user_iters {
+                if let Some(item) = iter.next() {
+                    result.push(item);
+                    added_any = true;
+                }
+            }
+            if !added_any {
+                break;
+            }
+        }
+
+        result
+    }
+
+    /// Process main categorization queue using on-demand API
+    async fn process_main_categorization_on_demand(&self) -> anyhow::Result<()> {
+        let items = self.queues.drain_main_categorization_queue();
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Apply round-robin ordering for fair user distribution
+        let items = Self::round_robin_by_user(items);
+        let item_count = items.len();
+        tracing::info!("Processing {} items via on-demand (main categorization)", item_count);
+
+        // Calculate estimated tokens
+        let system_prompt_tokens = *SYSTEM_PROMPT_TOKEN_ESTIMATE as u64;
+        let estimated_tokens: u64 = items
+            .iter()
+            .map(|i| i.estimated_content_tokens as u64 + system_prompt_tokens)
+            .sum();
+
+        // Register with tracker
+        self.tracker.start_batch_job(
+            PipelineStage::MainCategorization,
+            item_count,
+            estimated_tokens,
+        );
+
+        // Track actual tokens across concurrent tasks
+        let actual_tokens = Arc::new(AtomicU64::new(0));
+
+        // Load system rules
+        let system_rules = Arc::new(
+            SystemEmailRules::from_db(&self.conn)
+                .await
+                .context("Failed to load system email rules")?
+        );
+
+        // Get users with custom rules for routing decisions
+        let user_ids: Vec<i32> = {
+            let mut ids: Vec<i32> = items.iter().map(|i| i.user_id).collect();
+            ids.sort();
+            ids.dedup();
+            ids
+        };
+        let users_with_rules = Arc::new(self.get_users_with_rules(&user_ids).await?);
+
+        // Concurrent limit = rate_limit_per_sec / 2
+        let max_concurrent = cfg.api.prompt_limits.rate_limit_per_sec / 2;
+
+        let completed_count = Arc::new(AtomicU64::new(0));
+
+        futures::stream::iter(items)
+            .for_each_concurrent(Some(max_concurrent), |mut item| {
+                let system_rules = system_rules.clone();
+                let users_with_rules = users_with_rules.clone();
+                let rate_limiters = self.rate_limiters.clone();
+                let http_client = self.http_client.clone();
+                let queues = self.queues.clone();
+                let tracker = self.tracker.clone();
+                let actual_tokens = actual_tokens.clone();
+                let completed_count = completed_count.clone();
+
+                async move {
+                    // Rate limit before each call
+                    rate_limiters.acquire_one().await;
+                    rate_limiters.acquire_tokens(item.estimated_content_tokens as usize).await;
+
+                    match mistral::on_demand::send_category_prompt(
+                        &http_client,
+                        &rate_limiters,
+                        &item.simplified_message,
+                        system_rules.as_ref(),
+                    ).await {
+                        Ok(response) => {
+                            item.actual_tokens += response.token_usage;
+                            actual_tokens.fetch_add(response.token_usage as u64, Ordering::Relaxed);
+
+                            // Find matching rule
+                            let (email_rule, _) = find_matching_rule_system(
+                                response.general_category.as_deref(),
+                                &response.specific_category,
+                                response.confidence,
+                                system_rules.as_ref(),
+                                item.simplified_message.from.as_ref(),
+                            );
+
+                            // Store result
+                            item.first_pass_result = Some(CategorizationResult {
+                                category: email_rule.mail_label.clone(),
+                                ai_answer: email_rule.prompt_content.clone(),
+                                ai_confidence: response.confidence,
+                            });
+
+                            // Route to next stage
+                            let needs_user_defined = email_rule.mail_label == UtilityLabels::Uncategorized.as_str()
+                                && users_with_rules.contains(&item.user_id);
+
+                            if needs_user_defined {
+                                queues.push_to_user_defined_categorization_queue(item);
+                            } else if email_rule.extract_tasks {
+                                queues.push_to_task_extraction_queue(item);
+                            } else {
+                                queues.push_to_done_queue(item);
+                            }
+
+                            let count = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+                            tracker.update_batch_progress(PipelineStage::MainCategorization, count as usize);
+                            tracker.increment_processed(1);
+                        }
+                        Err(e) => {
+                            tracing::error!("On-demand main categorization failed for {}: {}", item.email_id, e);
+                            queues.push_to_failed_queue(FailedItem {
+                                item,
+                                stage: PipelineStage::MainCategorization,
+                                error: e.to_string(),
+                                retry_count: 0,
+                            });
+                        }
+                    }
+                }
+            })
+            .await;
+
+        // Complete the batch job
+        self.tracker.complete_batch_job(
+            PipelineStage::MainCategorization,
+            actual_tokens.load(Ordering::Relaxed),
+        );
+
+        Ok(())
+    }
+
+    /// Process user-defined categorization queue using on-demand API
+    async fn process_user_defined_on_demand(&self) -> anyhow::Result<()> {
+        let items = self.queues.drain_user_defined_categorization_queue();
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Apply round-robin ordering for fair user distribution
+        let items = Self::round_robin_by_user(items);
+        let item_count = items.len();
+        tracing::info!("Processing {} items via on-demand (user-defined categorization)", item_count);
+
+        // Load user rules in bulk
+        let user_ids: Vec<i32> = {
+            let mut ids: Vec<i32> = items.iter().map(|i| i.user_id).collect();
+            ids.sort();
+            ids.dedup();
+            ids
+        };
+        let user_rules_map = Arc::new(self.load_user_rules_bulk(&user_ids).await?);
+
+        // Pre-compute system prompt tokens per user (since they vary by user's rule count)
+        let user_system_prompt_tokens: HashMap<i32, u64> = user_rules_map
+            .iter()
+            .map(|(&user_id, rules)| {
+                let system_prompt = mistral::system_prompt(rules.get_prompt_input());
+                let tokens = tokenizer::token_count(&system_prompt).unwrap_or(0) as u64;
+                (user_id, tokens)
+            })
+            .collect();
+
+        // Calculate estimated tokens
+        let estimated_tokens: u64 = items
+            .iter()
+            .map(|i| {
+                let system_tokens = user_system_prompt_tokens.get(&i.user_id).copied().unwrap_or(0);
+                i.estimated_content_tokens as u64 + system_tokens
+            })
+            .sum();
+
+        // Register with tracker
+        self.tracker.start_batch_job(
+            PipelineStage::UserDefinedCategorization,
+            item_count,
+            estimated_tokens,
+        );
+
+        // Track actual tokens across concurrent tasks
+        let actual_tokens = Arc::new(AtomicU64::new(0));
+        let completed_count = Arc::new(AtomicU64::new(0));
+
+        // Concurrent limit
+        let max_concurrent = cfg.api.prompt_limits.rate_limit_per_sec / 2;
+
+        const USER_OVERRIDE_THRESHOLD: f32 = 0.95;
+
+        futures::stream::iter(items)
+            .for_each_concurrent(Some(max_concurrent), |mut item| {
+                let user_rules_map = user_rules_map.clone();
+                let rate_limiters = self.rate_limiters.clone();
+                let http_client = self.http_client.clone();
+                let queues = self.queues.clone();
+                let tracker = self.tracker.clone();
+                let actual_tokens = actual_tokens.clone();
+                let completed_count = completed_count.clone();
+
+                async move {
+                    // Get user rules
+                    let rules = match user_rules_map.get(&item.user_id) {
+                        Some(rules) => rules.clone(),
+                        None => UserEmailRules::new(vec![], vec![]),
+                    };
+
+                    // Rate limit before each call
+                    rate_limiters.acquire_one().await;
+                    rate_limiters.acquire_tokens(item.estimated_content_tokens as usize).await;
+
+                    match mistral::on_demand::send_category_prompt(
+                        &http_client,
+                        &rate_limiters,
+                        &item.simplified_message,
+                        &rules,
+                    ).await {
+                        Ok(response) => {
+                            item.actual_tokens += response.token_usage;
+                            actual_tokens.fetch_add(response.token_usage as u64, Ordering::Relaxed);
+
+                            // Find matching user rule
+                            let email_rule = rules.data()
+                                .iter()
+                                .find(|rule| {
+                                    rule.prompt_content.eq_ignore_ascii_case(&response.specific_category)
+                                })
+                                .cloned()
+                                .unwrap_or_else(|| UNKNOWN_RULE.clone());
+
+                            // Store result
+                            item.second_pass_result = Some(CategorizationResult {
+                                category: email_rule.mail_label.clone(),
+                                ai_answer: email_rule.prompt_content.clone(),
+                                ai_confidence: response.confidence,
+                            });
+
+                            // Determine final rule
+                            let final_rule = if response.confidence > USER_OVERRIDE_THRESHOLD {
+                                &email_rule
+                            } else {
+                                &*UNKNOWN_RULE
+                            };
+
+                            // Route to next stage
+                            if final_rule.extract_tasks {
+                                queues.push_to_task_extraction_queue(item);
+                            } else {
+                                queues.push_to_done_queue(item);
+                            }
+
+                            let count = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+                            tracker.update_batch_progress(PipelineStage::UserDefinedCategorization, count as usize);
+                            tracker.increment_processed(1);
+                        }
+                        Err(e) => {
+                            tracing::error!("On-demand user-defined categorization failed for {}: {}", item.email_id, e);
+                            queues.push_to_failed_queue(FailedItem {
+                                item,
+                                stage: PipelineStage::UserDefinedCategorization,
+                                error: e.to_string(),
+                                retry_count: 0,
+                            });
+                        }
+                    }
+                }
+            })
+            .await;
+
+        // Complete the batch job
+        self.tracker.complete_batch_job(
+            PipelineStage::UserDefinedCategorization,
+            actual_tokens.load(Ordering::Relaxed),
+        );
+
+        Ok(())
+    }
+
+    /// Process task extraction queue using on-demand API
+    async fn process_task_extraction_on_demand(&self) -> anyhow::Result<()> {
+        let items = self.queues.drain_task_extraction_queue();
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        // Apply round-robin ordering for fair user distribution
+        let items = Self::round_robin_by_user(items);
+        let item_count = items.len();
+        tracing::info!("Processing {} items via on-demand (task extraction)", item_count);
+
+        // Calculate estimated tokens
+        let system_prompt_tokens = *TASK_EXTRACTION_SYSTEM_PROMPT_TOKEN_ESTIMATE as u64;
+        let estimated_tokens: u64 = items
+            .iter()
+            .map(|i| i.estimated_content_tokens as u64 + system_prompt_tokens)
+            .sum();
+
+        // Register with tracker
+        self.tracker.start_batch_job(
+            PipelineStage::TaskExtraction,
+            item_count,
+            estimated_tokens,
+        );
+
+        // Track actual tokens across concurrent tasks
+        let actual_tokens = Arc::new(AtomicU64::new(0));
+        let completed_count = Arc::new(AtomicU64::new(0));
+
+        // Concurrent limit
+        let max_concurrent = cfg.api.prompt_limits.rate_limit_per_sec / 2;
+
+        futures::stream::iter(items)
+            .for_each_concurrent(Some(max_concurrent), |mut item| {
+                let rate_limiters = self.rate_limiters.clone();
+                let http_client = self.http_client.clone();
+                let queues = self.queues.clone();
+                let tracker = self.tracker.clone();
+                let actual_tokens = actual_tokens.clone();
+                let completed_count = completed_count.clone();
+
+                async move {
+                    // Rate limit before each call
+                    rate_limiters.acquire_one().await;
+                    rate_limiters.acquire_tokens(item.estimated_content_tokens as usize).await;
+
+                    match task_extraction::extract_tasks_from_email(
+                        &http_client,
+                        &rate_limiters,
+                        &item.simplified_message,
+                    ).await {
+                        Ok(response) => {
+                            item.actual_tokens += response.token_usage;
+                            actual_tokens.fetch_add(response.token_usage as u64, Ordering::Relaxed);
+                            item.extracted_tasks = response.tasks;
+
+                            // All items go to done queue after task extraction
+                            queues.push_to_done_queue(item);
+
+                            let count = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+                            tracker.update_batch_progress(PipelineStage::TaskExtraction, count as usize);
+                            tracker.increment_processed(1);
+                        }
+                        Err(e) => {
+                            tracing::error!("On-demand task extraction failed for {}: {}", item.email_id, e);
+                            queues.push_to_failed_queue(FailedItem {
+                                item,
+                                stage: PipelineStage::TaskExtraction,
+                                error: e.to_string(),
+                                retry_count: 0,
+                            });
+                        }
+                    }
+                }
+            })
+            .await;
+
+        // Complete the batch job
+        self.tracker.complete_batch_job(
+            PipelineStage::TaskExtraction,
+            actual_tokens.load(Ordering::Relaxed),
+        );
+
+        Ok(())
     }
 }

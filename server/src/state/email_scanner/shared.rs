@@ -3,7 +3,7 @@ use crate::{
         EmailRule, SystemEmailRules, UserEmailRules, EXCEPTION_RULES, HEURISTIC_EMAIL_RULES,
         UNKNOWN_RULE,
     },
-    prompt::task_extraction::ExtractedTask,
+    prompt::mistral::task_extraction::ExtractedTask,
     server_config::cfg,
 };
 

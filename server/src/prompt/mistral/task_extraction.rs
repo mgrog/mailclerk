@@ -15,7 +15,7 @@ use crate::{
     server_config::cfg,
 };
 
-use super::mistral::ChatApiResponseOrError;
+use super::ChatApiResponseOrError;
 
 const AI_ENDPOINT: &str = "https://api.mistral.ai/v1/chat/completions";
 

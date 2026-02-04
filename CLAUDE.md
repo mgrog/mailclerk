@@ -8,3 +8,5 @@
 ## Important Notes
 
 - A user's `daily_token_limit` can be set to `i64::MAX`. Take care to avoid integer overflows when adding to or multiplying this value.
+- Use `.is_multiple_of(n)` instead of `num % n == 0` (stable in Rust 1.92).
+- Prefer `#[derive(...)]` over manual trait implementations when the impl can be derived.

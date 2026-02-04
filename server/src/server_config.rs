@@ -96,6 +96,10 @@ pub struct ScannerPipelineConfig {
     /// TTL for recently processed IDs in seconds (default: 3600 = 1 hour)
     #[serde(default = "default_recently_processed_ttl")]
     pub recently_processed_ttl_secs: u64,
+
+    /// Duration to stay in on-demand mode after batch congestion detected (default: 10800 = 3 hours)
+    #[serde(default = "default_on_demand_duration")]
+    pub on_demand_duration_secs: u64,
 }
 
 fn default_polling_interval() -> u64 {
@@ -113,6 +117,9 @@ fn default_max_retries() -> u32 {
 fn default_recently_processed_ttl() -> u64 {
     3600
 }
+fn default_on_demand_duration() -> u64 {
+    10800 // 3 hours
+}
 
 impl Default for ScannerPipelineConfig {
     fn default() -> Self {
@@ -122,6 +129,7 @@ impl Default for ScannerPipelineConfig {
             max_parallel_poll_users: default_max_parallel_users(),
             max_retry_count: default_max_retries(),
             recently_processed_ttl_secs: default_recently_processed_ttl(),
+            on_demand_duration_secs: default_on_demand_duration(),
         }
     }
 }

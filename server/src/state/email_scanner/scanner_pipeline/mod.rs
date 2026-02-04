@@ -1,6 +1,7 @@
 //! Scanner Pipeline
 //!
-//! A pipeline for processing emails using Mistral's batch API.
+//! A pipeline for processing emails using Mistral's batch API with an
+//! 'on demand' fallback during periods of high congestion.
 //! This module replaces the on-demand queue processor for continuous email scanning.
 //!
 //! ## Architecture
@@ -102,7 +103,6 @@ mod tests {
         use crate::model::processed_email::ProcessedEmailCtrl;
         use crate::model::user::UserCtrl;
         use crate::observability::{PipelineTracker, ScanTracker};
-        use crate::prompt::TaskQueue;
         use crate::rate_limiters::RateLimiters;
         use crate::server_config::cfg;
         use crate::state::email_client_map::EmailClientMap;
@@ -255,7 +255,7 @@ mod tests {
 
                 // Print progress
                 if start.elapsed().as_secs().is_multiple_of(5) {
-                    println!("{}", pipeline.get_status_table());
+                    pipeline.log_status();
                 }
 
                 tokio::time::sleep(poll_interval).await;
@@ -349,6 +349,213 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(500)).await;
 
             println!("Empty queue test passed");
+        }
+
+        /// Integration test: Pipeline processes email in on-demand mode
+        ///
+        /// This test verifies that the on-demand fallback mode works correctly:
+        /// 1. Get a test user and fetch a recent email ID
+        /// 2. Create pipeline and force on-demand mode
+        /// 3. Add the email to the pipeline queues
+        /// 4. Start the pipeline and let it process
+        /// 5. Verify the email was inserted into processed_emails
+        /// 6. Clean up by deleting the test record
+        #[tokio::test]
+        async fn test_scanner_pipeline_on_demand_mode() {
+            let server_state = setup_server_state().await;
+
+            // 1. Get test user
+            let user = UserCtrl::get_with_account_access_and_usage_by_email(
+                &server_state.conn,
+                TEST_EMAIL,
+            )
+            .await;
+
+            if user.is_err() {
+                println!("Test user {} not found, skipping test", TEST_EMAIL);
+                return;
+            }
+            let user = user.unwrap();
+            println!("Test user: {} (id: {})", user.email, user.id);
+
+            // 2. Get email client and fetch a recent email ID
+            let email_client = get_email_client(&server_state, user.clone())
+                .await
+                .expect("Failed to get email client");
+
+            let max_lookback_days = cfg.continuous_scan.max_lookback_days;
+            let response = email_client
+                .get_message_list(MessageListOptions {
+                    more_recent_than: Some(chrono::Duration::days(max_lookback_days)),
+                    max_results: Some(10),
+                    ..Default::default()
+                })
+                .await
+                .expect("Failed to fetch message list");
+
+            let email_ids: Vec<String> = response
+                .messages
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|msg| msg.id)
+                .collect();
+
+            if email_ids.is_empty() {
+                println!("No recent emails found, skipping test");
+                return;
+            }
+
+            // Find an email that's NOT already processed
+            let existing_ids =
+                ProcessedEmailCtrl::get_existing_ids(&server_state.conn, user.id, &email_ids)
+                    .await
+                    .expect("Failed to check existing emails");
+
+            let test_email_id = email_ids.into_iter().find(|id| !existing_ids.contains(id));
+
+            let test_email_id = match test_email_id {
+                Some(id) => id,
+                None => {
+                    println!("All recent emails already processed, skipping test");
+                    return;
+                }
+            };
+
+            println!("Test email ID: {}", test_email_id);
+
+            // 3. Create pipeline and force on-demand mode
+            let pipeline = ScannerPipeline::new(server_state.clone());
+
+            // Force on-demand mode BEFORE starting the pipeline
+            pipeline.force_on_demand_mode();
+            assert!(
+                pipeline.is_on_demand_mode(),
+                "Pipeline should be in on-demand mode"
+            );
+            println!("Pipeline forced to on-demand mode");
+
+            let queues = pipeline.queues();
+
+            // Manually add the test email ID to the pending queue
+            let added = queues.add_pending_email_id(user.id, test_email_id.clone());
+            assert!(added, "Failed to add email to pending queue");
+            println!("Added email to pending queue");
+
+            // 4. Start the pipeline
+            pipeline.start();
+            println!("Pipeline started in on-demand mode");
+
+            // 5. Wait for the email to be processed (with timeout)
+            // On-demand mode should be faster than batch mode
+            let timeout = Duration::from_secs(120); // 2 minute max for on-demand
+            let poll_interval = Duration::from_millis(500);
+            let start = std::time::Instant::now();
+
+            let mut processed = false;
+            while start.elapsed() < timeout {
+                // Check if email is in recently_processed (means it completed)
+                if queues.is_recently_processed(&test_email_id) {
+                    processed = true;
+                    break;
+                }
+
+                // Also check if it's no longer in pipeline at all
+                if !queues.is_in_pipeline(&test_email_id)
+                    && !queues.is_recently_processed(&test_email_id)
+                {
+                    // Check if it made it to the database
+                    let existing = ProcessedEmailCtrl::get_existing_ids(
+                        &server_state.conn,
+                        user.id,
+                        std::slice::from_ref(&test_email_id),
+                    )
+                    .await
+                    .unwrap_or_default();
+
+                    if existing.contains(&test_email_id) {
+                        processed = true;
+                        break;
+                    }
+                }
+
+                // Print progress every 10 seconds
+                if start.elapsed().as_secs().is_multiple_of(10) && start.elapsed().as_secs() > 0 {
+                    println!(
+                        "Waiting for on-demand processing... {}s elapsed",
+                        start.elapsed().as_secs()
+                    );
+                    println!("{}", pipeline.get_status_table());
+                }
+
+                tokio::time::sleep(poll_interval).await;
+            }
+
+            // 6. Shutdown the pipeline
+            pipeline.shutdown();
+            println!("Pipeline shutdown");
+
+            // Give it a moment to complete shutdown
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // 7. Verify the email was processed
+            let existing = ProcessedEmailCtrl::get_existing_ids(
+                &server_state.conn,
+                user.id,
+                std::slice::from_ref(&test_email_id),
+            )
+            .await
+            .expect("Failed to check processed email");
+
+            if !processed || !existing.contains(&test_email_id) {
+                // Print final stats for debugging
+                println!("Final pipeline status:\n{}", pipeline.get_status_table());
+                panic!(
+                    "Email {} was not processed in on-demand mode within timeout. processed={}, in_db={}",
+                    test_email_id,
+                    processed,
+                    existing.contains(&test_email_id)
+                );
+            }
+
+            println!(
+                "Email {} successfully processed in on-demand mode!",
+                test_email_id
+            );
+            println!("{}", pipeline.get_status_table());
+
+            // 8. Clean up - delete the test processed email
+            let delete_result = ProcessedEmail::delete_by_id(test_email_id.clone())
+                .exec(&server_state.conn)
+                .await;
+
+            match delete_result {
+                Ok(result) => {
+                    println!(
+                        "Cleanup: deleted {} processed email record(s)",
+                        result.rows_affected
+                    );
+                }
+                Err(e) => {
+                    println!("Warning: cleanup failed: {}", e);
+                }
+            }
+
+            // Verify cleanup
+            let remaining = ProcessedEmailCtrl::get_existing_ids(
+                &server_state.conn,
+                user.id,
+                std::slice::from_ref(&test_email_id),
+            )
+            .await
+            .expect("Failed to verify cleanup");
+
+            assert!(
+                !remaining.contains(&test_email_id),
+                "Cleanup failed: email {} still exists in database",
+                test_email_id
+            );
+
+            println!("On-demand mode test completed successfully!");
         }
 
         /// Integration test: Pipeline queues operations

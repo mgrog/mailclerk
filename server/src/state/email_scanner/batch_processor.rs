@@ -11,7 +11,7 @@ use crate::{
     db_core::prelude::*,
     email::rules::{EmailRules, UserEmailRules},
     model::labels::UtilityLabels,
-    prompt::{mistral, task_extraction},
+    prompt::mistral::{self, task_extraction},
     state::email_scanner::shared::{
         CategorizationResult, CategorizationSource, EmailScanData, ProcessedEmailData,
     },
@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub use crate::prompt::mistral::categorization_user_prompt;
-pub use crate::prompt::task_extraction::task_extraction_user_prompt;
+pub use crate::prompt::mistral::task_extraction::task_extraction_user_prompt;
 
 /// Result from a categorization batch including job ID
 pub struct CategorizationBatchResult {
@@ -77,7 +77,7 @@ pub async fn run_categorization_batch<R: EmailRules>(
         .collect();
 
     let batch_result =
-        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn).await?;
+        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn, None).await?;
 
     Ok(CategorizationBatchResult {
         job_id: batch_result.job_id,
@@ -205,7 +205,7 @@ pub async fn run_task_extraction_batch(
         .collect();
 
     let batch_result =
-        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn).await?;
+        mistral::batch::run_batch_job(http_client, requests, job_name, track_fn, None).await?;
 
     Ok(TaskExtractionBatchResult {
         job_id: batch_result.job_id,

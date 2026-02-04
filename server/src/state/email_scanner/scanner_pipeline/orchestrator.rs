@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::{observability::PipelineTracker, server_config::cfg, ServerState};
+use crate::{
+    observability::PipelineTracker, rate_limiters::RateLimiters, server_config::cfg, ServerState,
+};
 
 use super::{
     done_handler::DoneHandler, fetcher::MessageFetcher, poller::EmailIdPoller,
@@ -40,11 +42,13 @@ impl ScannerPipeline {
 
         let fetcher = MessageFetcher::new(server_state.clone(), queues.clone(), tracker.clone());
 
+        let rate_limiters = RateLimiters::from_env();
         let stage_runner = StageRunner::new(
             server_state.http_client.clone(),
             server_state.conn.clone(),
             queues.clone(),
             tracker.clone(),
+            rate_limiters,
         );
 
         let done_handler =
@@ -125,8 +129,24 @@ impl ScannerPipeline {
         &self.tracker
     }
 
+    // Log status update
+    pub fn log_status(&self) {
+        self.tracker.log_status();
+    }
+
     /// Get reference to the queues (for monitoring)
     pub fn queues(&self) -> &Arc<PipelineQueues> {
         &self.queues
+    }
+
+    /// Force on-demand processing mode (for testing)
+    #[cfg(any(test, feature = "integration"))]
+    pub fn force_on_demand_mode(&self) {
+        self.stage_runner.force_on_demand_mode();
+    }
+
+    /// Check if currently in on-demand mode
+    pub fn is_on_demand_mode(&self) -> bool {
+        self.stage_runner.is_on_demand_mode()
     }
 }

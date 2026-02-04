@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod on_demand;
+pub mod task_extraction;
 
 use std::collections::HashMap;
 use std::sync::LazyLock;

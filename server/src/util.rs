@@ -18,16 +18,21 @@ pub fn check_expired(expires_at: DateTimeWithTimeZone) -> bool {
 
 /// Format a vector as a pgvector-compatible string: [0.1,0.2,...]
 pub fn format_vector<T: std::fmt::Display>(v: &[T]) -> String {
-    let inner = v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+    let inner = v
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     format!("[{inner}]")
 }
 
 /// Format a message as a fixed-width banner: `--------MESSAGE--------`
-/// Total width is always 70 characters. Messages longer than 66 chars are truncated.
+/// Total width is always 70 characters. Messages longer than 64 chars are truncated.
 pub fn banner(msg: &str) -> String {
     const TOTAL_WIDTH: usize = 70;
     const MIN_DASHES: usize = 2;
-    let max_msg_len = TOTAL_WIDTH - (MIN_DASHES * 2);
+    const PADDING: usize = 1;
+    let max_msg_len = TOTAL_WIDTH - (MIN_DASHES * 2) - (PADDING * 2);
 
     let msg = if msg.len() > max_msg_len {
         &msg[..max_msg_len]
@@ -39,5 +44,10 @@ pub fn banner(msg: &str) -> String {
     let left = remaining / 2;
     let right = remaining - left;
 
-    format!("{}-{}-{}", "-".repeat(left - 1), msg, "-".repeat(right - 1))
+    format!(
+        "{}- {} -{}",
+        "-".repeat(left - 1 - PADDING),
+        msg,
+        "-".repeat(right - 1 - PADDING)
+    )
 }

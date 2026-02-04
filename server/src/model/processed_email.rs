@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 use sea_orm::{ConnectionTrait, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 
-use crate::{db_core::prelude::*, error::AppResult, prompt::task_extraction::ExtractedTask};
+use crate::{db_core::prelude::*, error::AppResult, prompt::mistral::task_extraction::ExtractedTask};
 
 pub struct ProcessedEmailCtrl;
 

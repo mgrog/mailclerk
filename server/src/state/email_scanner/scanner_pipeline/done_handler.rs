@@ -97,6 +97,15 @@ impl DoneHandler {
         }
         self.tracker.increment_inserted(item_count as u64);
 
+        // 4. Record per-user 24hr email stats
+        let mut user_email_counts: HashMap<i32, u64> = HashMap::new();
+        for item in &items {
+            *user_email_counts.entry(item.user_id).or_default() += 1;
+        }
+        for (user_id, count) in user_email_counts {
+            self.tracker.record_user_processed(user_id, count);
+        }
+
         tracing::info!(
             "Completed processing {} items (inserted to DB, updated quotas)",
             item_count

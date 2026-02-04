@@ -16,7 +16,7 @@ use crate::{
     },
     model::user::{UserCtrl, UserWithAccountAccessAndUsage},
     observability::{ScanPhase, ScanTracker, ScanType},
-    prompt::{mistral::categorization_user_prompt, task_extraction::ExtractedTask},
+    prompt::mistral::{categorization_user_prompt, task_extraction::ExtractedTask},
     server_config::cfg,
     state::email_scanner::{
         batch_processor::{

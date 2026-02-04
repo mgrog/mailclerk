@@ -226,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
                         interval.tick().await;
                         let status_table = pipeline_tracker.get_status_table();
                         if !status_table.is_empty() {
-                            tracing::info!("Pipeline Status:\n{}", status_table);
+                            tracing::info!("\n{}", status_table);
                         }
                     }
                 })
