@@ -4,8 +4,10 @@
 //! - Active scans (initial scan, re-categorization, etc.)
 //! - Scanner pipeline tracking
 //! - Metrics and progress tracking
+//! - Critical alert paging via Pushover
 
 mod common;
+pub mod pager;
 mod pipeline_tracker;
 mod scan_tracker;
 
