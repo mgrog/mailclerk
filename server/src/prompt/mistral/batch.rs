@@ -250,7 +250,7 @@ pub struct BatchResultError {
 pub struct CategoryResult {
     pub email_id: String,
     pub general_category: Option<String>,
-    pub specific_category: String,
+    pub specific_type: String,
     pub confidence: f32,
     pub token_usage: i64,
 }
@@ -569,7 +569,7 @@ pub fn parse_categorization_results(results: Vec<BatchResultLine>) -> Vec<Catego
             Some(CategoryResult {
                 email_id: result.custom_id,
                 general_category: answer.general_category,
-                specific_category: answer.specific_category,
+                specific_type: answer.specific_type,
                 confidence: answer.confidence,
                 token_usage: total_tokens,
             })
@@ -737,7 +737,7 @@ mod tests {
             "response": {
                 "status_code": 200,
                 "body": {
-                    "choices": [{"message": {"content": "{\"general_category\": \"newsletter\", \"specific_category\": \"Newsletter\", \"confidence\": 0.95}"}}],
+                    "choices": [{"message": {"content": "{\"general_category\": \"newsletter\", \"specific_type\": \"Newsletter\", \"confidence\": 0.95}"}}],
                     "usage": {"total_tokens": 100}
                 }
             },
@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].email_id, "email456");
         assert_eq!(parsed[0].general_category.as_ref().unwrap(), "newsletter");
-        assert_eq!(parsed[0].specific_category, "Newsletter");
+        assert_eq!(parsed[0].specific_type, "Newsletter");
         assert!((parsed[0].confidence - 0.95).abs() < 0.01);
     }
 }

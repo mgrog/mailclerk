@@ -90,7 +90,7 @@ pub async fn send_category_prompt<R: EmailRules>(
 
     Ok(CategoryChatResponse {
         general_category: answer.general_category,
-        specific_category: answer.specific_category,
+        specific_type: answer.specific_type,
         confidence: answer.confidence,
         token_usage: usage.total_tokens,
     })
@@ -117,7 +117,7 @@ mod tests {
 
         assert!(result.contains("• \"category1\""));
         assert!(result.contains("• \"category2\""));
-        assert!(result.contains("specific_category"));
+        assert!(result.contains("specific_type"));
     }
 
     #[cfg(feature = "integration")]
@@ -164,7 +164,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(resp.specific_category, test_content);
+        assert_eq!(resp.specific_type, test_content);
     }
 
     #[cfg(feature = "integration")]
@@ -190,7 +190,7 @@ mod tests {
             .unwrap();
 
         assert!(resp.general_category.is_some());
-        assert!(!resp.specific_category.is_empty());
+        assert!(!resp.specific_type.is_empty());
         assert!(resp.confidence >= 0.0 && resp.confidence <= 1.0);
         assert!(resp.token_usage > 0);
     }

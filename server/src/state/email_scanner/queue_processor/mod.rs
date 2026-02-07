@@ -299,7 +299,7 @@ impl EmailProcessor {
 
         let (system_rule, heuristics_used) = find_matching_rule_system(
             system_response.general_category.as_deref(),
-            &system_response.specific_category,
+            &system_response.specific_type,
             system_response.confidence,
             &self.system_email_rules,
             email_message.from.as_ref(),
@@ -327,12 +327,12 @@ impl EmailProcessor {
             // User rule with >0.95 confidence overrides system
             if user_response.confidence > 0.95 {
                 let user_rule = find_matching_rule_user(
-                    &user_response.specific_category,
+                    &user_response.specific_type,
                     &self.user_email_rules,
                 );
                 return Ok(PromptReturnData {
                     email_rule: user_rule,
-                    ai_answer: user_response.specific_category,
+                    ai_answer: user_response.specific_type,
                     ai_confidence: user_response.confidence,
                     heuristics_used: false,
                     token_usage: system_response.token_usage + user_response.token_usage,
@@ -341,7 +341,7 @@ impl EmailProcessor {
             // User confidence too low, still return system but account for token usage
             return Ok(PromptReturnData {
                 email_rule: system_rule,
-                ai_answer: system_response.specific_category,
+                ai_answer: system_response.specific_type,
                 ai_confidence: system_response.confidence,
                 heuristics_used,
                 token_usage: system_response.token_usage + user_response.token_usage,
@@ -351,7 +351,7 @@ impl EmailProcessor {
         // Return system categorization
         Ok(PromptReturnData {
             email_rule: system_rule,
-            ai_answer: system_response.specific_category,
+            ai_answer: system_response.specific_type,
             ai_confidence: system_response.confidence,
             heuristics_used,
             token_usage: system_response.token_usage,

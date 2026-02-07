@@ -14,7 +14,10 @@ use crate::{
         rules::SystemEmailRules,
         simplified_message::SimplifiedMessage,
     },
-    model::user::{UserCtrl, UserWithAccountAccessAndUsage},
+    model::{
+        system_email_rule::SystemEmailRuleCtrl,
+        user::{UserCtrl, UserWithAccountAccessAndUsage},
+    },
     observability::{ScanPhase, ScanTracker, ScanType},
     prompt::mistral::{categorization_user_prompt, task_extraction::ExtractedTask},
     server_config::cfg,
@@ -30,6 +33,21 @@ use crate::{
     ServerState,
 };
 
+/// Summary of a category found during the initial scan.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CategorySummary {
+    pub count: usize,
+    pub priority: i32,
+}
+
+/// Result data from a completed initial scan.
+#[derive(Debug, Clone)]
+pub struct ScanResult {
+    pub category_summary: HashMap<String, CategorySummary>,
+    pub extracted_tasks_count: usize,
+    pub emails_with_tasks_count: usize,
+}
+
 /// Run initial scan for a single user.
 /// This function:
 /// 1. Fetches emails from the past N days (configured via initial_scan.lookback_days)
@@ -37,11 +55,14 @@ use crate::{
 /// 3. Runs batch task extraction for relevant emails
 /// 4. Stores results in the database (in chunks of 1000)
 /// 5. Sets is_initial_scan_complete = true
+///
+/// Returns a [`ScanResult`] with category summaries and task extraction count on success,
+/// or `None` if there were no emails to process.
 pub async fn run_initial_scan_for_user(
     state: ServerState,
     user: UserWithAccountAccessAndUsage,
     scan_tracker: ScanTracker,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<ScanResult>> {
     let user_id = user.id;
     let user_email = user.email.clone();
     let conn = state.conn.clone();
@@ -87,7 +108,7 @@ pub async fn run_initial_scan_for_user(
         if emails.is_empty() {
             tracing::info!("No emails to process for user {}", user_email);
             UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
-            return Ok(());
+            return Ok(None);
         }
 
         tracing::info!(
@@ -147,7 +168,7 @@ pub async fn run_initial_scan_for_user(
             .map(|r| {
                 let (email_rule, _) = find_matching_rule_system(
                     r.general_category.as_deref(),
-                    &r.specific_category,
+                    &r.specific_type,
                     r.confidence,
                     &system_rules,
                     email_from_map.get(&r.email_id),
@@ -229,6 +250,19 @@ pub async fn run_initial_scan_for_user(
             })
             .collect();
 
+        // Collect category counts and task metrics before insertion
+        let mut category_counts: HashMap<String, usize> = HashMap::new();
+        let mut extracted_tasks_count: usize = 0;
+        let mut emails_with_tasks_count: usize = 0;
+        for email in &processed_emails {
+            *category_counts.entry(email.category.clone()).or_default() += 1;
+            let task_count = email.extracted_tasks.len();
+            extracted_tasks_count += task_count;
+            if task_count > 0 {
+                emails_with_tasks_count += 1;
+            }
+        }
+
         // Phase 4: Batch insert in chunks
         scan_tracker.set_phase(user_id, ScanPhase::Inserting);
         let stored_count = batch_insert_processed_emails(&conn, processed_emails).await?;
@@ -240,17 +274,33 @@ pub async fn run_initial_scan_for_user(
             stored_count
         );
 
+        // Fetch priorities for the categories found
+        let labels: Vec<String> = category_counts.keys().cloned().collect();
+        let priorities = SystemEmailRuleCtrl::get_priorities_by_labels(&conn, &labels).await?;
+
+        let category_summary: HashMap<String, CategorySummary> = category_counts
+            .into_iter()
+            .map(|(label, count)| {
+                let priority = priorities.get(&label).copied().unwrap_or(0);
+                (label, CategorySummary { count, priority })
+            })
+            .collect();
+
         // Set is_initial_scan_complete = true
         UserCtrl::set_initial_scan_complete(&conn, user_id).await?;
 
-        Ok::<(), anyhow::Error>(())
+        Ok::<_, anyhow::Error>(Some(ScanResult {
+            category_summary,
+            extracted_tasks_count,
+            emails_with_tasks_count,
+        }))
     };
 
     // Run the scan and handle errors
     match run_scan.await {
-        Ok(()) => {
+        Ok(scan_result) => {
             scan_tracker.complete_scan(user_id);
-            Ok(())
+            Ok(scan_result)
         }
         Err(e) => {
             scan_tracker.fail_scan(user_id, e.to_string());

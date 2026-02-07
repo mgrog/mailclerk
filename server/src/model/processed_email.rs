@@ -55,7 +55,7 @@ impl ProcessedEmailCtrl {
 
     /// Returns the SQL expression for calculating priority score.
     /// Takes a timestamp string to use instead of NOW() for stable pagination.
-    /// Uses aliases: `pe` for processed_email, `uer` for user_email_rule subquery.
+    /// Expects aliases: `pe` for processed_email, `uer` for user_email_rule, `ser` for system_email_rule.
     fn priority_score_sql(reference_time: &str) -> String {
         format!(
             "(\
@@ -76,7 +76,7 @@ impl ProcessedEmailCtrl {
                 WHEN pe.has_new_reply = true THEN 200 \
                 ELSE 0 \
             END + \
-            COALESCE((uer.priority) * 100, 200)",
+            COALESCE(uer.priority, ser.priority, 2) * 100",
             ts = reference_time,
         )
     }
@@ -142,15 +142,16 @@ impl ProcessedEmailCtrl {
                 pe.internal_date,
                 pe.snippet,
                 pe.subject,
-                uer.priority,
+                COALESCE(uer.priority, ser.priority) AS priority,
                 ({priority_score})::INTEGER AS priority_score
             FROM processed_email pe
-            LEFT JOIN (
-                SELECT DISTINCT ON (mail_label) mail_label, priority
-                FROM user_email_rule
-                WHERE user_id = $1
-                ORDER BY mail_label
-            ) uer ON uer.mail_label = pe.category
+            LEFT JOIN user_email_rule uer
+                ON uer.semantic_key = pe.ai_answer
+                AND uer.mail_label = pe.category
+                AND uer.user_id = $1
+            LEFT JOIN system_email_rule ser
+                ON ser.semantic_key = pe.ai_answer
+                AND ser.mail_label = pe.category
             WHERE pe.user_id = $1
             {cursor_filter}
             ORDER BY priority_score DESC, pe.history_id DESC

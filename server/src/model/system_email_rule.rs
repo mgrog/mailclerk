@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::DatabaseConnection;
 
@@ -73,5 +73,22 @@ impl SystemEmailRuleCtrl {
         SystemEmailRule::insert_many(models).exec(conn).await?;
 
         Ok(Some(count))
+    }
+
+    /// Returns a map of mail_label -> priority for the given mail labels.
+    pub async fn get_priorities_by_labels(
+        conn: &DatabaseConnection,
+        labels: &[String],
+    ) -> AppResult<HashMap<String, i32>> {
+        let results: Vec<(String, i32)> = SystemEmailRule::find()
+            .select_only()
+            .column(system_email_rule::Column::MailLabel)
+            .column(system_email_rule::Column::Priority)
+            .filter(system_email_rule::Column::MailLabel.is_in(labels))
+            .into_tuple()
+            .all(conn)
+            .await?;
+
+        Ok(results.into_iter().collect())
     }
 }

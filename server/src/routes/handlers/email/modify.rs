@@ -11,7 +11,7 @@ use crate::{
     ServerState,
 };
 
-use super::shared::fetch_email_client;
+use super::super::common::fetch_email_client;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

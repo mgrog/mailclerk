@@ -1,5 +1,6 @@
 pub mod account_connection;
 pub mod auth;
+mod common;
 #[cfg(debug_assertions)]
 pub mod dev_only;
 pub mod email;

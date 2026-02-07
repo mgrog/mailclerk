@@ -21,7 +21,8 @@ use crate::{
     ServerState,
 };
 
-use super::shared::{extract_body_from_payload, fetch_email_client, get_message_header};
+use super::super::common::fetch_email_client;
+use super::shared::{extract_body_from_payload, get_message_header};
 
 #[derive(Debug)]
 pub struct Attachment {

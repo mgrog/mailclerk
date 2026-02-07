@@ -105,18 +105,18 @@ pub fn find_matching_rule(
 /// Find the matching system email rule (first pass) with heuristics
 pub fn find_matching_rule_system(
     general_category: Option<&str>,
-    specific_category: &str,
+    specific_type: &str,
     confidence: f32,
     system_email_rules: &SystemEmailRules,
     email_from: Option<impl AsRef<str>>,
 ) -> (EmailRule, bool) {
-    // Try to match specific_category first (against prompt_content)
+    // Try to match specific_type first (against prompt_content)
     let mut selected_rule = system_email_rules
         .data()
         .iter()
-        .find(|c| c.prompt_content.eq_ignore_ascii_case(specific_category))
+        .find(|c| c.prompt_content.eq_ignore_ascii_case(specific_type))
         .or_else(|| {
-            // If specific_category is unknown or doesn't match, try general_category (against mail_label)
+            // If specific_type is unknown or doesn't match, try general_category (against mail_label)
             general_category.and_then(|gc| {
                 system_email_rules
                     .data()

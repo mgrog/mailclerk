@@ -15,7 +15,9 @@ use crate::{request_tracing, ServerState};
 use super::handler_404;
 #[cfg(debug_assertions)]
 use crate::routes::handlers::dev_only;
-use crate::routes::handlers::{account_connection, auth, email, gmail_labels, user, user_email_rule};
+use crate::routes::handlers::{
+    account_connection, auth, email, gmail_labels, user, user_email_rule,
+};
 
 pub struct ServerRouter;
 
@@ -66,7 +68,7 @@ impl ServerRouter {
                 "/check-account-connection",
                 get(account_connection::check_account_connection),
             )
-            .route("/user-email-rule/test", post(user_email_rule::test))
+            .route("/user-email-rule/check", post(user_email_rule::check))
             .route("/gmail/labels", get(gmail_labels::get_user_gmail_labels))
             .nest(
                 "/user",
@@ -91,34 +93,27 @@ impl ServerRouter {
                     .route("/mark-as-read", put(email::mark_as_read))
                     .route("/mark-as-unread", put(email::mark_as_unread))
                     .with_state(state.clone()),
+            );
+
+        #[cfg(debug_assertions)]
+        let router = router
+            .route(
+                "/dev/refresh_user_token/:user_email",
+                get(dev_only::refresh_user_token),
             )
+            .route("/dev/token", get(dev_only::dev_token))
+            .route("/dev/messages", get(email::get_messages_by_ids))
+            .route("/dev/message/:id", get(email::get_message_by_id));
+
+        let router = router
             .layer(CookieManagerLayer::new())
             .layer(GovernorLayer {
                 config: ip_limiter_conf,
             })
             .layer(request_tracing::trace_with_request_id_layer())
             .layer(cors_layer)
-            .with_state(state.clone())
+            .with_state(state)
             .fallback(handler_404);
-
-        #[cfg(debug_assertions)]
-        let router = router
-            .route(
-                "/dev/refresh_user_token/:user_email",
-                get(dev_only::refresh_user_token).with_state(state.clone()),
-            )
-            .route(
-                "/dev/token",
-                get(dev_only::dev_token).with_state(state.clone()),
-            )
-            .route(
-                "/dev/messages",
-                get(email::get_messages_by_ids).with_state(state.clone()),
-            )
-            .route(
-                "/dev/message/:id",
-                get(email::get_message_by_id).with_state(state.clone()),
-            );
 
         router
     }

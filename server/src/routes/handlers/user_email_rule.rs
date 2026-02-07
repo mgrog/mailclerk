@@ -1,6 +1,10 @@
-use crate::email::{
-    rules::{EmailRule, UserEmailRules},
-    simplified_message::SimplifiedMessage,
+use super::common::fetch_email_client;
+use crate::{
+    email::{
+        rules::{EmailRule, UserEmailRules},
+        simplified_message::SimplifiedMessage,
+    },
+    ServerState,
 };
 use crate::{prompt, rate_limiters::RateLimiters, HttpClient};
 use axum::{extract::State, Json};
@@ -9,38 +13,51 @@ use serde::{Deserialize, Serialize};
 
 use crate::{auth::jwt::Claims, error::AppJsonResult};
 
-/// # POST /user_email_rule/test
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRule {
+    semantic_key: String,
+    mail_label: String,
+    extract_tasks: bool,
+    priority: i32,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestUserEmailRuleBody {
-    pub email_summary: String,
-    pub email_content: String,
-    pub mail_label: String,
+    email_id: String,
+    rule: TestRule,
 }
 
-pub async fn test(
+/// # POST /user_email_rule/check
+pub async fn check(
     claims: Claims,
     State(http_client): State<HttpClient>,
     State(conn): State<DatabaseConnection>,
     State(rate_limiters): State<RateLimiters>,
-    Json(TestUserEmailRuleBody {
-        email_summary,
-        email_content,
-        mail_label,
-    }): Json<TestUserEmailRuleBody>,
+    State(server_state): State<ServerState>,
+    Json(TestUserEmailRuleBody { email_id, rule }): Json<TestUserEmailRuleBody>,
 ) -> AppJsonResult<UserEmailRuleResponse> {
     let user_id = claims.sub;
-    let mut user_email_rules = UserEmailRules::from_user(&conn, user_id).await?;
+    let user_email = claims.email;
+
+    let (user_email_rules, email_client) = tokio::join!(
+        UserEmailRules::from_user(&conn, user_id),
+        fetch_email_client(server_state, user_email)
+    );
+
+    let mut user_email_rules = user_email_rules?;
+    let email_client = email_client?;
+
+    let message = email_client.get_message_by_id(&email_id).await?;
+    let simplified_msg = SimplifiedMessage::from_gmail_message(&message)?;
 
     user_email_rules.add_rule(EmailRule {
-        prompt_content: email_summary.clone(),
-        mail_label: mail_label.clone(),
-        extract_tasks: false,
-        priority: 0,
+        prompt_content: rule.semantic_key.clone(),
+        mail_label: rule.mail_label.clone(),
+        extract_tasks: rule.extract_tasks,
+        priority: rule.priority,
     });
-
-    let simplified_msg = SimplifiedMessage::from_string(email_content);
 
     let response = prompt::mistral::on_demand::send_category_prompt(
         &http_client,
@@ -50,17 +67,17 @@ pub async fn test(
     )
     .await?;
 
-    let result = if response.specific_category == email_summary {
+    let result = if response.specific_type == rule.mail_label {
         UserEmailRuleResponse {
             kind: Kind::Success,
             message: "Category matches expected".to_string(),
-            ai_response: response.specific_category,
+            ai_response: response.specific_type,
         }
     } else {
         UserEmailRuleResponse {
             kind: Kind::Failure,
             message: "Category does not match expected".to_string(),
-            ai_response: response.specific_category,
+            ai_response: response.specific_type,
         }
     };
 

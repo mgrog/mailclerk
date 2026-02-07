@@ -5,7 +5,7 @@ pub mod task_extraction;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,7 +15,7 @@ use crate::server_config::CATEGORIZATION_CONFIG;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CategoryChatResponse {
     pub general_category: Option<String>,
-    pub specific_category: String,
+    pub specific_type: String,
     pub confidence: f32,
     pub token_usage: i64,
 }
@@ -24,7 +24,7 @@ pub struct CategoryChatResponse {
 #[derive(Debug, Clone)]
 pub struct ParsedAnswer {
     pub general_category: Option<String>,
-    pub specific_category: String,
+    pub specific_type: String,
     pub confidence: f32,
 }
 
@@ -36,12 +36,12 @@ pub fn parse_category_answer(content: &str) -> Option<ParsedAnswer> {
         .get("general_category")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let specific_category = parsed.get("specific_category")?.as_str()?.to_string();
+    let specific_type = parsed.get("specific_type")?.as_str()?.to_string();
     let confidence = parsed.get("confidence")?.as_f64()? as f32;
 
     Some(ParsedAnswer {
         general_category,
-        specific_category,
+        specific_type,
         confidence,
     })
 }
@@ -108,16 +108,16 @@ pub static MAILCLERK_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(||
                         "type": "string",
                         "title": "General Category"
                     },
-                    "specific_category": {
+                    "specific_type": {
                         "type": "string",
-                        "title": "Specific Category"
+                        "title": "Specific Type"
                     },
                     "confidence": {
                         "type": "number",
                         "title": "Confidence"
                     }
                 },
-                "required": ["general_category", "specific_category", "confidence"],
+                "required": ["general_category", "specific_type", "confidence"],
                 "additionalProperties": false
             }
         }
@@ -152,23 +152,50 @@ pub static SYSTEM_PROMPT_TOKEN_ESTIMATE: LazyLock<i64> = LazyLock::new(|| {
     tokenizer::token_count(&prompt_text).unwrap() as i64
 });
 
+const SYSTEM_CAT_INSTRUCTIONS: &str = indoc! {r#"
+    Read the email content carefully (subject, sender, body).
+    Determine the sender's intent, not the user's reaction.
+    Choose the single best general category.
+    Choose the most specific matching type within that category.
+    If multiple categories apply, choose the dominant intent.
+    Do not invent new categories or types.
+    If the general category is a strong fit, but the specific type does not clearly fit, write "Unknown" for the specific type but include the matching general category in your response. 
+    If the email does not clearly fit either general category or specific type, write "Unknown" for both fields."#
+};
+
+const USER_CAT_INSTRUCTIONS: &str = indoc! {r#"
+    Read the email content carefully (subject, sender, body).
+    Determine the sender's intent, not the user's reaction.
+    Choose the single best specific type.
+    If multiple types apply, choose the dominant intent.
+    Do not invent new types.
+    If the email does not clearly fit, write "Unknown"."#
+};
+
 pub enum SystemPromptInput {
     SystemDefined,
     UserDefined(Vec<String>),
 }
 
 pub fn system_prompt(input: SystemPromptInput) -> String {
-    let (taxonomy, preamble, output_instruction) = match input {
-        SystemPromptInput::SystemDefined => (
-            SYSTEM_TAXONOMY.to_string(),
-            "Your task is to categorize the given email into one general category and one specific category from the predefined taxonomy below.",
-            "You will only respond with a JSON object with the keys general_category, specific_category, and confidence."
-        ),
+    let (taxonomy, preamble, input_instructions, output_instruction) = match input {
+        SystemPromptInput::SystemDefined => {
+            let taxonomy = SYSTEM_TAXONOMY.to_string();
+            let preamble = "Your task is to categorize the given email into one general category and one specific category from the predefined taxonomy below.";
+            let input_instructions = SYSTEM_CAT_INSTRUCTIONS;
+            let output_instruction = "You will only respond with a JSON object with the keys general_category, specific_type, and confidence.";
+            (taxonomy, input_instructions, preamble, output_instruction)
+        }
         SystemPromptInput::UserDefined(ref list) => {
-            (list.iter().map(|c| format!("• \"{}\"", c)).join("\n"),
-            "Your task is to categorize the given email into one specific category from the predefined taxonomy below.",
-            "You will only respond with a JSON object with the keys specific_category, and confidence."
-        )
+            let mut taxonomy = "• \"Specific Types\"\n".to_string();
+            let specific_types = list.iter().map(|c| format!("  • \"{}\"", c)).join("\n");
+            taxonomy.push_str(&specific_types);
+
+            let preamble = "Your task is to categorize the given email into one specific type from the predefined taxonomy below.";
+            let input_instructions = USER_CAT_INSTRUCTIONS;
+            let output_instruction = "You will only respond with a JSON object with the keys specific_type, and confidence.";
+
+            (taxonomy, input_instructions, preamble, output_instruction)
         }
     };
 
@@ -177,13 +204,7 @@ pub fn system_prompt(input: SystemPromptInput) -> String {
         {preamble}
 
         Instructions:
-        Read the email content carefully (subject, sender, body).
-        Determine the sender's intent, not the user's reaction.
-        Choose the single best general category.
-        Choose the most specific matching type within that category.
-        If multiple categories apply, choose the dominant intent.
-        Do not invent new categories or types.
-        If the email does not clearly fit, write "Unknown" in the category fields.
+        {input_instructions}
 
         Taxonomy (authoritative):
 

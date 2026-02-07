@@ -7,6 +7,8 @@ use tower_http::cors::CorsLayer;
 
 use crate::{request_tracing, ServerState};
 use crate::routes::handlers::scan;
+#[cfg(debug_assertions)]
+use crate::routes::handlers::dev_only;
 
 use super::handler_404;
 
@@ -49,15 +51,23 @@ impl ScannerRouter {
             }
         });
 
-        Router::new()
+        let router = Router::new()
             .route("/", get(|| async { "OK" }))
-            .route("/scan/initial", get(scan::start_initial_scan_ws))
+            .route("/scan/initial", get(scan::start_initial_scan_ws));
+
+        #[cfg(debug_assertions)]
+        let router =
+            router.route("/dev/scan/mock-initial", get(dev_only::mock_initial_scan_ws));
+
+        let router = router
             .layer(GovernorLayer {
                 config: ip_limiter_conf,
             })
             .layer(request_tracing::trace_with_request_id_layer())
             .layer(cors_layer)
             .with_state(state)
-            .fallback(handler_404)
+            .fallback(handler_404);
+
+        router
     }
 }

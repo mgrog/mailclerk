@@ -326,7 +326,7 @@ impl StageRunner {
                 // Find matching rule with heuristics
                 let (email_rule, _heuristics_used) = find_matching_rule_system(
                     result.general_category.as_deref(),
-                    &result.specific_category,
+                    &result.specific_type,
                     result.confidence,
                     system_rules,
                     from_map.get(&custom_id),
@@ -630,7 +630,7 @@ impl StageRunner {
                             .iter()
                             .find(|rule| {
                                 rule.prompt_content
-                                    .eq_ignore_ascii_case(&result.specific_category)
+                                    .eq_ignore_ascii_case(&result.specific_type)
                             })
                             .cloned()
                     })
@@ -1133,7 +1133,7 @@ impl StageRunner {
                             // Find matching rule
                             let (email_rule, _) = find_matching_rule_system(
                                 response.general_category.as_deref(),
-                                &response.specific_category,
+                                &response.specific_type,
                                 response.confidence,
                                 system_rules.as_ref(),
                                 item.simplified_message.from.as_ref(),
@@ -1276,7 +1276,7 @@ impl StageRunner {
                             let email_rule = rules.data()
                                 .iter()
                                 .find(|rule| {
-                                    rule.prompt_content.eq_ignore_ascii_case(&response.specific_category)
+                                    rule.prompt_content.eq_ignore_ascii_case(&response.specific_type)
                                 })
                                 .cloned()
                                 .unwrap_or_else(|| UNKNOWN_RULE.clone());

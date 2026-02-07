@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use axum::{
     extract::{
@@ -11,30 +11,47 @@ use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 
 use crate::{
-    auth::jwt::Claims, error::AppError, model::user::UserCtrl, observability::ScanPhase,
-    state::email_scanner::initial_scan::run_initial_scan_for_user, ServerState,
+    auth::jwt::Claims,
+    error::AppError,
+    model::user::UserCtrl,
+    observability::ScanPhase,
+    state::email_scanner::initial_scan::{run_initial_scan_for_user, CategorySummary, ScanResult},
+    ServerState,
 };
+
+/// Detailed analysis results from the scan.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailedAnalysis {
+    pub category_analysis: HashMap<String, CategorySummary>,
+    pub extracted_tasks_count: usize,
+    pub emails_with_tasks_count: usize,
+}
 
 /// Status update sent over WebSocket
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ScanStatusUpdate {
+    #[serde(rename_all = "camelCase")]
     Started {
         user_id: i32,
         user_email: String,
     },
+    #[serde(rename_all = "camelCase")]
     Progress {
         phase: String,
         fetched_emails: usize,
         total_to_fetch: usize,
-        total_emails: usize,
+        total_to_scan: usize,
         processed_emails: usize,
         percentage: f32,
         elapsed_secs: u64,
     },
+    #[serde(rename_all = "camelCase")]
     Complete {
-        total_emails: usize,
+        processed_emails: usize,
         elapsed_secs: u64,
+        detailed_analysis: Option<DetailedAnalysis>,
     },
     Failed {
         error: String,
@@ -82,14 +99,15 @@ async fn handle_scan_socket(
     }
 
     // Spawn the scan task with a channel to communicate the result
-    let (result_tx, mut result_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let (result_tx, mut result_rx) =
+        tokio::sync::oneshot::channel::<Result<Option<ScanResult>, String>>();
     let scan_state = state.clone();
     let scan_user = user.clone();
     let scan_tracker_clone = scan_tracker.clone();
     tokio::spawn(async move {
         let result = run_initial_scan_for_user(scan_state, scan_user, scan_tracker_clone).await;
         let send_result = match result {
-            Ok(_) => Ok(()),
+            Ok(scan_result) => Ok(scan_result),
             Err(e) => {
                 tracing::error!("Initial scan failed for user {}: {:?}", user_id, e);
                 Err(e.to_string())
@@ -111,9 +129,14 @@ async fn handle_scan_socket(
                 // Check if the scan task completed (success or failure)
                 result = &mut result_rx => {
                     let final_msg = match result {
-                        Ok(Ok(())) => ScanStatusUpdate::Complete {
-                            total_emails: last_processed,
+                        Ok(Ok(scan_result)) => ScanStatusUpdate::Complete {
+                            processed_emails: last_processed,
                             elapsed_secs: last_elapsed_secs,
+                            detailed_analysis: scan_result.map(|r| DetailedAnalysis {
+                                category_analysis: r.category_summary,
+                                extracted_tasks_count: r.extracted_tasks_count,
+                                emails_with_tasks_count: r.emails_with_tasks_count,
+                            }),
                         },
                         Ok(Err(error)) => ScanStatusUpdate::Failed { error },
                         Err(_) => ScanStatusUpdate::Failed {
@@ -146,7 +169,7 @@ async fn handle_scan_socket(
                                 phase: entry.phase.short_name().to_string(),
                                 fetched_emails: entry.fetch_progress.current,
                                 total_to_fetch: entry.fetch_progress.total,
-                                total_emails: entry.scan_progress.total,
+                                total_to_scan: entry.scan_progress.total,
                                 processed_emails: entry.scan_progress.current,
                                 percentage: entry.scan_progress.percentage(),
                                 elapsed_secs: entry.elapsed_secs(),

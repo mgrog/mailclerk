@@ -15,7 +15,7 @@ use crate::{
     ServerState,
 };
 
-use super::shared::fetch_email_client;
+use super::super::common::fetch_email_client;
 
 const DEFAULT_PAGE_SIZE: u32 = 20;
 const MAX_PAGE_SIZE: u32 = 100;
